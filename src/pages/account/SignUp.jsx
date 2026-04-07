@@ -19,8 +19,6 @@ import Alert from '@mui/material/Alert';
 import { styled } from '@mui/material/styles';
 import { useUser } from '@/common/contexts/UserContext';
 import GoogleIcon from '@mui/icons-material/Google';
-import FacebookIcon from '@mui/icons-material/Facebook';
-import WebIcon from '@mui/icons-material/Web';
 import nuLogo from "../../assets/nuLogo.svg";
 
 const Card = styled(MuiCard)(({ theme }) => ({
@@ -191,7 +189,7 @@ export default function SignUpModal({ open, onClose }) {
           </IconButton>
           
 
-          <nuLogo />
+          <img src={nuLogo} alt="Logo" style={{maxWidth:50}}/>
           <Typography
             id="signup-modal-title"
             component="h1"
@@ -255,7 +253,7 @@ export default function SignUpModal({ open, onClose }) {
                 required
                 fullWidth
                 id="email"
-                placeholder="j@example.com"
+                placeholder="johnsmith@u.northwestern.edu"
                 name="email"
                 autoComplete="email"
                 variant="outlined"
