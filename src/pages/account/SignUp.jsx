@@ -21,6 +21,10 @@ import { useUser } from '@/common/contexts/UserContext';
 import GoogleIcon from '@mui/icons-material/Google';
 import nuLogo from "../../assets/nuLogo.svg";
 
+{/*
+TODO: Probably remove manual signup, only have google signup option available, require northwestern email address
+*/}
+
 const Card = styled(MuiCard)(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
