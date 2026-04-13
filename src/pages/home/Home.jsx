@@ -205,11 +205,18 @@ function App() {
               <img src={nuLogo} style={{ maxWidth: 25 }} />
               <span className="header-title">Resume Optimizer</span>
             </div>
+
             <div className="header-right">
               {user ? (
-                <Button className="btn-header" onClick={handleLogout}>
-                  Sign Out
-                </Button>
+                <>
+                  <Button className="btn-header">
+                    My resumes
+                  </Button>
+                  <Button className="btn-header" onClick={handleLogout}>
+                    Sign Out
+                  </Button>
+                </>
+
               ) : (
                 <Button className="btn-header btn-primary" onClick={() => setSignupOpen(true)}>
                   Sign In
@@ -325,7 +332,25 @@ function App() {
         {/* Job Description */}
         <div className="section">
           <div className="section-header">
-            <h2>2. Add Job Description</h2>
+            <div className="header-with-tooltip">
+              <h2>2. Add Job Description</h2>
+              <Tooltip
+                title="Fetching job descriptions from popular sites like Linked or Indeed may be inaccurate or blocked due to antibot protections. Pasting the job description manually would be better in these instances."
+                arrow
+                placement="right"
+                slotProps={{
+                  tooltip: {
+                    sx: {
+                      fontSize: '16px',
+                    },
+                  },
+                }}
+              >
+                <IconButton className="tooltip-icon">
+                  <img src={help_outline} placeholder="help icon" />
+                </IconButton>
+              </Tooltip>
+            </div>
             <p>Enter job URL or paste the description manually</p>
           </div>
           <div className="section-body">
