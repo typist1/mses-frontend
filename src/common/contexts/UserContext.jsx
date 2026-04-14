@@ -116,6 +116,12 @@ const googleAuth = async () => {
     }
   };
 
+  const getToken = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) throw new Error('No authenticated user');
+    return currentUser.getIdToken();
+  };
+
   const contextValue = {
     user,
     isLoading,
@@ -123,6 +129,7 @@ const googleAuth = async () => {
     logout,
     googleAuth,
     requestPasswordReset,
+    getToken,
   };
 
   return (

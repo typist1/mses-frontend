@@ -4,6 +4,7 @@ import NavLayout from '@/common/layouts/NavLayout';
 
 import './App.css';
 import Home from './pages/home/Home';
+import Resumes from './pages/home/Resumes';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
         <Routes>
           <Route path='/' element={<NavLayout />}>
             <Route index element={<Home/>}/>
+            <Route path='resumes' element={<Resumes/>}/>
           </Route>
 
         </Routes>

@@ -145,10 +145,8 @@ function App() {
     } catch (err) {
       console.error('Error extracting job description:', err);
       setJobLoading(false);
-      // Fallback to demo data if backend is not available
-      setJobDescription(
-        `We are seeking a talented Full Stack Developer to join our growing team.\n\nResponsibilities:\n- Design and develop scalable web applications using React and Node.js\n- Collaborate with cross-functional teams to define and implement new features\n- Write clean, maintainable code following best practices\n- Deploy and maintain applications on AWS cloud infrastructure\n\nRequired Skills:\n- 3+ years of experience with JavaScript/TypeScript\n- Strong proficiency in React, Node.js, and Express\n- Experience with Python for backend development\n- Knowledge of AWS services and Docker containerization\n- Familiarity with CI/CD pipelines\n- Strong problem-solving skills and attention to detail\n\nNice to Have:\n- Experience with MongoDB or other NoSQL databases\n- Knowledge of microservices architecture\n- Contributions to open-source projects`
-      );
+      setJobDescription('');
+      alert('Failed to fetch job description. Please paste it manually.');
     }
   };
 
@@ -209,7 +207,7 @@ function App() {
             <div className="header-right">
               {user ? (
                 <>
-                  <Button className="btn-header">
+                  <Button className="btn-header" href="/resumes" >
                     My resumes
                   </Button>
                   <Button className="btn-header" onClick={handleLogout}>
@@ -362,8 +360,10 @@ function App() {
                 onChange={(e) => setJobURL(e.target.value)}
                 variant="outlined"
                 className="url-field"
-                InputProps={{
-                  startAdornment: <LinkIcon className="url-icon" />,
+                slotProps={{
+                  input: {
+                    startAdornment: <LinkIcon className="url-icon" />,
+                  },
                 }}
               />
               <Button
