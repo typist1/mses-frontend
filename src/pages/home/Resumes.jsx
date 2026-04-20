@@ -23,19 +23,18 @@ import {
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
 import { UserContext } from '@/common/contexts/UserContext';
-import nuLogo from "../../assets/nuLogo.svg";
 import './Resumes.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 function Resumes() {
-  const { user, logout, getToken } = useContext(UserContext);
+  const { user, getToken } = useContext(UserContext);
   const fileInputRef = useRef(null);
 
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  
+
   // Preview modal states
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewResume, setPreviewResume] = useState(null);
@@ -68,8 +67,8 @@ function Resumes() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.type !== 'application/pdf' && 
-        file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    if (file.type !== 'application/pdf' &&
+      file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
       alert('Please upload either a PDF or DOCX file');
       return;
     }
@@ -91,10 +90,10 @@ function Resumes() {
           'Content-Type': 'multipart/form-data',
         },
       });
-      
+
       alert('Resume uploaded successfully!');
       fetchResumes();
-      
+
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -116,7 +115,7 @@ function Resumes() {
       await axios.delete(`${BACKEND_URL}/resumes/${resumeId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       alert('Resume deleted successfully!');
       fetchResumes();
     } catch (error) {
@@ -131,7 +130,7 @@ function Resumes() {
       await axios.put(`${BACKEND_URL}/resumes/${resumeId}/active`, {}, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       fetchResumes();
     } catch (error) {
       console.error('Error setting active resume:', error);
@@ -149,7 +148,7 @@ function Resumes() {
 
       const blob = response.data;
       const fileType = resume.file_name.endsWith('.pdf') ? 'pdf' : 'docx';
-      
+
       setPreviewResume(resume);
       setPreviewType(fileType);
 
@@ -218,45 +217,9 @@ function Resumes() {
     });
   };
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
   return (
-    <div className="app">
-      <div className="header">
-        <Container maxWidth="lg">
-          <div className="header-content">
-            <div className="header-left">
-              <img src={nuLogo} style={{ maxWidth: 25 }} alt="Logo" />
-              <span className="header-title">Resume Optimizer</span>
-            </div>
-
-            <div className="header-right">
-              {user ? (
-                <>
-                  <Button className="btn-header" href="/">
-                    Home
-                  </Button>
-                  <Button className="btn-header" onClick={handleLogout}>
-                    Sign Out
-                  </Button>
-                </>
-              ) : (
-                <Button className="btn-header btn-primary" href="/">
-                  Sign In
-                </Button>
-              )}
-            </div>
-          </div>
-        </Container>
-      </div>
-
-      <Container maxWidth="lg" className="main-container">
+    <div>
+    <Container maxWidth="lg" className="main-container">
         <div className="resumes-header">
           <div>
             <h1>My Resumes</h1>
@@ -355,7 +318,6 @@ function Resumes() {
         )}
       </Container>
 
-      {/* Preview Modal */}
       <Dialog
         open={previewOpen}
         onClose={handleClosePreview}
@@ -385,7 +347,7 @@ function Resumes() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }
 

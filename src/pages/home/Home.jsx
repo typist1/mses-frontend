@@ -16,13 +16,13 @@ import {
   Link as LinkIcon,
 } from '@mui/icons-material';
 import help_outline from "../../assets/help_outline.svg";
-import nuLogo from "../../assets/nuLogo.svg";
 import '../../App.css';
 import { UserContext } from '@/common/contexts/UserContext';
-import SignUpModal from '../account/SignUp';
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 function App() {
-  const { user, logout } = useContext(UserContext);
+  const { user, getToken } = useContext(UserContext);
   const fileInputRef = useRef(null);
 
   // Resume states
@@ -46,19 +46,6 @@ function App() {
     suggestions: [],
   });
 
-  // Auth modal state
-  const [signupOpen, setSignupOpen] = useState(false);
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      handleClear();
-    } catch (error) {
-      console.error('Logout error:', error);
-      alert('Failed to log out. Please try again.');
-    }
-  };
-
   const handleClear = () => {
     if (filePreview && fileType === 'pdf') {
       URL.revokeObjectURL(filePreview);
@@ -76,10 +63,7 @@ function App() {
     }
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file) => {
     if (filePreview && fileType === 'pdf') {
       URL.revokeObjectURL(filePreview);
     }
@@ -101,6 +85,39 @@ function App() {
 
     handleExtractText(file);
   };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    const autoPopulateActiveResume = async () => {
+      try {
+        const token = await getToken();
+        const { data } = await axios.get(`${BACKEND_URL}/resumes`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const active = (data.resumes || []).find((r) => r.is_active);
+        if (!active) return;
+
+        const blobRes = await axios.get(`${BACKEND_URL}/resumes/${active.id}/download`, {
+          headers: { Authorization: `Bearer ${token}` },
+          responseType: 'blob',
+        });
+        const mimeType = active.file_name.endsWith('.pdf')
+          ? 'application/pdf'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const file = new File([blobRes.data], active.file_name, { type: mimeType });
+        await processFile(file);
+      } catch (err) {
+        console.error('Error auto-populating active resume:', err);
+      }
+    };
+    autoPopulateActiveResume();
+  }, [user]);
 
   const handleExtractText = async (file) => {
     const formData = new FormData();
@@ -195,42 +212,7 @@ function App() {
   }, [filePreview, fileType]);
 
   return (
-    <div className="app">
-      <div className="header">
-        <Container maxWidth="lg">
-          <div className="header-content">
-            <div className="header-left">
-              <img src={nuLogo} style={{ maxWidth: 25 }} />
-              <span className="header-title">Resume Optimizer</span>
-            </div>
-
-            <div className="header-right">
-              {user ? (
-                <>
-                  <Button className="btn-header" href="/resumes" >
-                    My resumes
-                  </Button>
-                  <Button className="btn-header" onClick={handleLogout}>
-                    Sign Out
-                  </Button>
-                </>
-
-              ) : (
-                <Button className="btn-header btn-primary" onClick={() => setSignupOpen(true)}>
-                  Sign In
-                </Button>
-              )}
-            </div>
-          </div>
-        </Container>
-      </div>
-
-      <SignUpModal
-        open={signupOpen}
-        onClose={() => setSignupOpen(false)}
-      />
-
-      <Container maxWidth="lg" className="main-container">
+    <Container maxWidth="lg" className="main-container">
         {/* Hero */}
         {!fileUpload && (
           <div className="hero">
@@ -470,7 +452,6 @@ function App() {
           </>
         )}
       </Container>
-    </div>
   );
 }
 

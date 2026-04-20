@@ -36,10 +36,8 @@ export function UserProvider({ children }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          // 🔥 YOU WERE MISSING THIS LINE
           const idToken = await firebaseUser.getIdToken();
       
-          // Step 1: sync with backend
           await fetch(buildUrl('/auth/token'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
