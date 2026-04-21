@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Container,
@@ -16,6 +17,7 @@ import {
   CloudUpload,
   Delete,
   Download,
+  Edit,
   Visibility,
   Star,
   StarBorder,
@@ -29,6 +31,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 function Resumes() {
   const { user, getToken } = useContext(UserContext);
+  const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
   const [resumes, setResumes] = useState([]);
@@ -287,6 +290,12 @@ function Resumes() {
                         className="icon-btn"
                       >
                         {resume.is_active ? <Star color="warning" /> : <StarBorder />}
+                      </IconButton>
+                    </Tooltip>
+
+                    <Tooltip title="Edit">
+                      <IconButton onClick={() => navigate('/editor', { state: { resumeId: resume.id, fileName: resume.file_name } })} className="icon-btn">
+                        <Edit />
                       </IconButton>
                     </Tooltip>
 

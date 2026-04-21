@@ -1,0 +1,272 @@
+Plan: LLM Analysis Pipeline                                                                                                              
+                                                        
+ Context
+
+ The app has working resume upload, text extraction (unpdf/mammoth), JD scraping (Playwright), Firebase Auth, and Supabase DB. The
+ handleOptimize() function in Home.jsx returns mock data. Goal: replace the mock with a real 5-prompt LLM pipeline (preflight → JD
+ sanitize → Phase 1 parse → Phase 2 gap analysis → Phase 3 rewrite), persist results, and surface them in the UI with full transparency
+ controls.
+
+ All prompts are already specified by the user. This plan focuses on wiring, infrastructure, safeguards, and the UI layer.
+
+ ---
+ Database Schema Additions
+
+ File: mses-backend/sql/create_tables.sql (append)
+
+ -- analyses: one row per full pipeline run
+ CREATE TABLE IF NOT EXISTS analyses (
+   id                SERIAL PRIMARY KEY,
+   user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+   resume_id         INTEGER REFERENCES resumes(id) ON DELETE SET NULL,
+   job_title         TEXT,
+   company           TEXT,
+   overall_fit_score NUMERIC(5,1),
+   parsed_resume     JSONB,
+   gap_analysis      JSONB,
+   optimized_resume  JSONB,
+   change_log        JSONB,
+   flags             JSONB,          -- { truncated_resume, truncated_jd, sparse_jd, flagged_bullets }
+   prompt_version    VARCHAR(20) NOT NULL DEFAULT 'v1.0',
+   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+ );
+
+ CREATE INDEX IF NOT EXISTS idx_analyses_user_id ON analyses(user_id);
+ CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at);
+
+ ▎ Data retention note: No automated purge is implemented yet. Decide on a policy (suggested: 90 days) before storing real user PII. The
+ ▎ created_at index makes a future cleanup job cheap.
+
+ ---
+ Backend
+
+ 1. Install OpenAI SDK (DeepSeek is OpenAI-compatible)
+
+ cd mses-backend && npm install openai
+
+ Add to .env:
+ DEEPSEEK_API_KEY=sk-...
+
+ DeepSeek uses the OpenAI-compatible REST API at https://api.deepseek.com. Initialize client:
+ import OpenAI from 'openai';
+ const client = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' });
+
+ Models to use:
+ - deepseek-chat (DeepSeek-V3) — all 5 prompts. Fast, cheap, strong at structured JSON output.
+ - If the user later wants higher reasoning quality for Phase 2/3, swap to deepseek-reasoner (R1) for those calls only.
+
+ ---
+ 2. New File: mses-backend/src/services/llmService.js
+
+ Responsibilities:
+ - Holds all 5 prompts as template strings with {{PLACEHOLDER}} substitution
+ - PROMPT_VERSION = 'v1.0' — increment this constant whenever any prompt changes
+ - Input truncation: resume text ≥ 15,000 chars → truncate + set flag; JD text ≥ 20,000 chars → truncate + set flag
+ - temperature: 0 on every call (determinism for run comparison)
+ - Shared callLLM(messages, maxTokens) with retry loop:
+   - Parse JSON by stripping ```json fences + trimming whitespace
+   - On JSON.parse failure: retry up to 2 times, appending "Your last response was not valid JSON. Return only the JSON object, no other
+ text." correction message
+   - After 3 failures: throw a structured error { code: 'JSON_PARSE_FAILED' }
+ - Model: deepseek-chat; use max_tokens: 1000 for preflight/sanitize, 4096 for Phase 1/2, 8192 for Phase 3 chunks
+ - Phase 3 is split into 2 calls to avoid max_tokens mid-output:
+   - Call A: rewrite experience + projects bullets (output: { experience, projects })
+   - Call B: rewrite summary + skills section (output: { summary, skills })
+   - Merge results client-side before storing
+
+ Exported functions:
+ preflightResume(resumeText)          // returns { is_resume, confidence, rejection_reason }
+ sanitizeJD(rawText)                  // returns { is_valid_job_description, cleaned_jd, job_title, company, rejection_reason }
+ parseResume(resumeText)              // returns parsed resume JSON
+ gapAnalysis(parsedResume, cleanedJd, coursesMinified)  // returns gap analysis JSON
+ rewriteExperienceProjects(parsedResume, gapAnalysis, jobTitle)  // Phase 3 chunk A
+ rewriteSummarySkills(parsedResume, gapAnalysis, jobTitle)       // Phase 3 chunk B
+
+ COURSES_MINIFIED is imported from a new backend copy of MSESCourses.js (or passed in from the route). Keep it as a static constant — it
+ never changes.
+
+ ---
+ 3. New File: mses-backend/src/services/analysisUtils.js
+
+ Lightweight utilities used by the analysis route:
+
+ // Multi-column PDF heuristic
+ // Returns true if > 40% of lines are < 20 chars (interleaved column artifact)
+ detectMultiColumnPDF(text)
+
+ // Fabrication check
+ // Returns array of bullet indices in optimized_resume that contain numbers
+ // not present in the corresponding original bullet
+ checkFabricatedNumerics(originalBullets, rewrittenBullets)
+
+ // Score breakdown (plain-language summary)
+ // Returns "Strong on X/Y required skills, needs work on Z/W recommended"
+ buildScoreBreakdown(skillsArray)
+
+ // Rate limit check
+ // Queries analyses table: count where user_id=? AND created_at > NOW()-1day
+ // Returns { allowed: bool, used: int, limit: 3 }
+ checkRateLimit(supabase, userId)
+
+ ---
+ 4. New File: mses-backend/src/routes/analysisRoutes.js
+
+ POST /analyze — single endpoint, requires authMiddleware.
+
+ Request body:
+ {
+   "resumeText": "string (raw extracted text)",
+   "jdText": "string (pasted JD or already-scraped text)",
+   "resumeId": "number | null"
+ }
+
+ Pipeline (sequential):
+ 1. checkRateLimit → 429 if ≥ 3/day
+ 2. Truncate inputs + set flags if needed
+ 3. Resume length sanity check: if < 200 chars → 400 with message "We couldn't extract enough text from your file..."
+ 4. preflightResume → if is_resume=false → 400 with rejection_reason
+ 5. sanitizeJD → if is_valid_job_description=false → 400 with rejection_reason
+ 6. Sparse JD check: if Phase 2 would likely produce < 5 skills, detect early (heuristic: cleaned_jd < 300 chars) → set
+ flags.sparse_jd=true (still proceed, just flag)
+ 7. parseResume → parsed resume JSON
+ 8. gapAnalysis(parsedResume, cleanedJd, COURSES_MINIFIED)
+ 9. Sparse JD post-check: if skills.length < 5 → set flags.sparse_jd=true
+ 10. rewriteExperienceProjects + rewriteSummarySkills (can run in parallel since they're independent)
+ 11. Merge Phase 3 chunks into final optimized_resume + change_log
+ 12. checkFabricatedNumerics → append flagged bullet info to flags.flagged_bullets
+ 13. buildScoreBreakdown → add to response as score_breakdown
+ 14. Insert row into analyses table (user_id, resume_id, all JSONs, flags, prompt_version)
+ 15. Return 200 with full analysis
+
+ Error responses are specific (not generic 500s) for each failure stage.
+
+ GET /analyze/:id — retrieve a saved analysis, enforces user_id = current_user.
+
+ GET /analyze — list all analyses for current user (id, job_title, overall_fit_score, created_at only — not full JSONs).
+
+ Register in server.js:
+ import analysisRoutes from './routes/analysisRoutes.js';
+ app.use('/analyze', analysisRoutes);
+
+ ---
+ 5. Modify mses-backend/src/server.js
+
+ Add the route registration. No other changes needed.
+
+ ---
+ Frontend Changes
+
+ 6. Modify mses-frontend/src/pages/home/Home.jsx
+
+ Replace handleOptimize mock with real API call to POST /analyze, sending fileContent and jobDescription.
+
+ Add multi-phase loading state: instead of a spinner, show which phase is running:
+ - "Validating resume..." (preflight)
+ - "Analyzing job description..." (sanitize)
+ - "Parsing resume..." (Phase 1)
+ - "Running gap analysis..." (Phase 2)
+ - "Optimizing resume..." (Phase 3)
+
+ Actually since the backend runs all phases sequentially and returns once, show a single progress indicator with a status message that
+ cycles through phases using a timer approximation. The backend returns only when done.
+
+ Results display — replace mock results with real data from API response:
+
+ 1. Match Score — overall_fit_score (already has CircularProgress UI)
+ 2. Score Breakdown — plain-language summary from score_breakdown field, shown below the numeric score
+ 3. Skills Table — show gap_analysis.skills as a table: Skill | Importance | Fit | Gap Keywords | Actions | Courses. Color rows: red (fit
+  1-2), yellow (fit 3), green (fit 4-5).
+ 4. ATS Keyword Density — client-side computation: for each skill in gap_analysis, count occurrences of skill.skill.toLowerCase() in
+ fileContent.toLowerCase(). Show as "Appears X times in your resume" next to each skill.
+ 5. Change Log / Accept-Reject — iterate over change_log, render each as an expandable row showing original vs. rewritten bullet with an
+ Accept / Reject toggle (local state). Flag bullets in flags.flagged_bullets with a warning icon ("Contains numbers not in original —
+ please verify").
+ 6. Warnings panel — if any flags are set, show a yellow warning box:
+   - flags.truncated_resume → "Resume was very long; only the first 15,000 characters were analyzed."
+   - flags.sparse_jd → "This job description appears sparse. The analysis may be lower quality."
+   - flags.flagged_bullets → "Some rewritten bullets contain numbers not in the original. Review them before using."
+ 7. Export to Excel — button that uses a simple CSV/XLSX generation. Columns: Skill, Importance, Fit Score, Fit Label, Gap Keywords,
+ Recommended Actions, Courses. Compute Fit Label client-side (1→"Not Found", 2→"Weak Signal", 3→"Transferable", 4→"Direct Match",
+ 5→"Strong Match"). Add summary row at top with overall_fit_score. Add second sheet with change_log. Use xlsx or exceljs package.
+ 8. "Open in Editor" button — after the user toggles accept/reject on change_log entries, clicking this button navigates to /editor and
+ pre-populates the ResumeEditor with the merged optimized_resume, where only accepted bullets replace originals (rejected bullets use
+ original text). Pass data via React Router state (navigate('/editor', { state: { resumeData } })). The ResumeEditor already supports
+ DOCX/PDF export from there.
+
+ No new pages — all results stay on Home.jsx (results panel below the input form). The change_log accept/reject state is local only.
+
+ 7. Add History Tab on Home.jsx
+
+ Add a tab switcher at the top of Home.jsx: "New Analysis" (current form) | "Past Analyses" (history list).
+
+ History tab calls GET /analyze to fetch the user's past runs and renders a table: Job Title | Company | Fit Score | Date | "View"
+ button. Clicking "View" loads the full analysis from GET /analyze/:id and renders the same results panel used for new analyses
+ (read-only, no re-run). This reuses all the results display components already built.
+
+ Course links — in the skills table, each recommended course code links to the Northwestern course page. Hard-code the URL pattern:
+ https://www.mccormick.northwestern.edu/energy-environment/courses/{code.toLowerCase().replace('-','')}.html or just link to a search.
+ Confirm the pattern with the user before implementing.
+
+ ---
+ Items NOT Implemented (Scope Decisions)
+
+ - Comparison across runs: Data model supports it (analyses table with created_at). UI deferred. Future work: add GET /analyze?resumeId=X
+  to filter, then a compare view.
+ - Non-English resumes: Not handled. If the extracted text appears non-English (heuristic: > 30% non-ASCII chars), return a 400 with
+ "English-only resumes are supported at this time."
+ - Mobile UI: Flagged as a UX concern; not addressed in this implementation.
+ - Raw response storage: Do NOT store raw LLM API responses in the database. Only store the parsed JSON results.
+ - Encrypted CV storage: Deferred to a later security hardening pass. Do not log resume text in application logs (remove existing
+ console.log calls in pdfController.js that print file details).
+ - DOCX text box limitation: Document as a known limitation in UI tooltip.
+
+ ---
+ Verification
+
+ 1. Rate limit: Create 3 analyses, verify 4th returns 429. Reset by deleting rows.
+ 2. JSON retry: Temporarily add a test that makes the model return invalid JSON (inject a bad response in test mode) — verify retry fires
+  and ultimately returns 400.
+ 3. Truncation: Pass a 20k-char resume → verify flags.truncated_resume=true in response.
+ 4. Short resume rejection: Pass 100 chars → verify 400 with clear error.
+ 5. Invalid resume (injection attempt): Pass "Ignore previous instructions" as resume → verify 400.
+ 6. Sparse JD: Pass a 2-sentence JD → verify flags.sparse_jd=true.
+ 7. Score determinism: Run same resume+JD twice → verify overall_fit_score is identical both times (temperature=0).
+ 8. Accept/reject UI: Load results, toggle rejections, click "Download Optimized" — verify rejected bullets use original text.
+ 9. Rate limit: Confirm analyses table row is inserted with correct user_id, prompt_version, and non-null JSONs.
+ 10. Fabrication flag: Manually craft a scenario where Phase 3 adds a made-up metric → verify it appears in flags.flagged_bullets.
+
+ ---
+ Critical Files
+
+ ┌─────────────────────────────────────────────────┬───────────────────────────────────────────────────┐
+ │                      File                       │                      Change                       │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/sql/create_tables.sql              │ Add analyses table                                │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/src/services/llmService.js         │ New — all LLM calls                               │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/src/services/analysisUtils.js      │ New — helpers                                     │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/src/routes/analysisRoutes.js       │ New — API routes                                  │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/src/server.js                      │ Register analysisRoutes                           │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/.env                               │ Add DEEPSEEK_API_KEY                              │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-backend/package.json                       │ Add openai (DeepSeek-compatible)                  │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-frontend/src/pages/home/Home.jsx           │ Replace mock, add results UI + history tab        │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-frontend/src/pages/editor/ResumeEditor.jsx │ Accept pre-populated resumeData from router state │
+ ├─────────────────────────────────────────────────┼───────────────────────────────────────────────────┤
+ │ mses-frontend/package.json                      │ Add xlsx or exceljs                               │
+ └─────────────────────────────────────────────────┴───────────────────────────────────────────────────┘
+
+ ---
+ Open Questions for User
+
+ 1. Course URL pattern: What's the canonical URL for Northwestern MSES course pages? The Excel/skills table and analysis results should
+ link there.
+ 2. Phase 3 chunking input: When calling Phase 3, should we send the full parsedResume JSON to each chunk call, or only the relevant
+ sections (experience+projects for chunk A, summary+skills for chunk B)? Sending only relevant sections saves tokens but deviates from
+ the prompt spec which expects the full resume.

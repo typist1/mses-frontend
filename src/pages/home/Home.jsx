@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import mammoth from 'mammoth';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Container,
@@ -23,6 +24,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 function App() {
   const { user, getToken } = useContext(UserContext);
+  const navigate = useNavigate();
   const fileInputRef = useRef(null);
 
   // Resume states
@@ -448,6 +450,18 @@ function App() {
                   ))}
                 </ul>
               </div>
+            </div>
+
+            {/* Edit in Resume Editor */}
+            <div className="analyze-section">
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => navigate('/editor', { state: { fromAnalysis: true } })}
+                className="btn-export"
+              >
+                Edit in Resume Editor
+              </Button>
             </div>
           </>
         )}

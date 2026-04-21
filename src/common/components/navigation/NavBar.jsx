@@ -12,7 +12,7 @@ function NavBar({ children }) {
   const [signupOpen, setSignupOpen] = useState(false);
   const { user, logout } = useContext(UserContext);
   const location = useLocation();
-  const onResumesPage = location.pathname === '/resumes';
+  const path = location.pathname;
 
   const handleLogout = async () => {
     try {
@@ -23,25 +23,27 @@ function NavBar({ children }) {
     }
   };
 
+  const navCls = (p) => `btn-header${path === p ? ' btn-header-active' : ''}`;
+
   return (
     <div className="app">
       <div className="header">
         <Container maxWidth="lg">
           <div className="header-content">
             <div className="header-left">
-              <img src={nuLogo} style={{ maxWidth: 25 }} />
-              <span className="header-title">Resume Optimizer</span>
+              <a href="/" className="header-logo-link">
+                <img src={nuLogo} style={{ maxWidth: 25 }} />
+                <span className="header-title">Resume Optimizer</span>
+              </a>
             </div>
 
             <div className="header-right">
               {user ? (
                 <>
-                  <Button className="btn-header" href={onResumesPage ? '/' : '/resumes'}>
-                    {onResumesPage ? 'Home' : 'My Resumes'}
-                  </Button>
-                  <Button className="btn-header" onClick={handleLogout}>
-                    Sign Out
-                  </Button>
+                  <Button className={navCls('/')} href="/">Home</Button>
+                  <Button className={navCls('/resumes')} href="/resumes">My Resumes</Button>
+                  <Button className={navCls('/editor')} href="/editor">Resume Editor</Button>
+                  <Button className="btn-header" onClick={handleLogout}>Sign Out</Button>
                 </>
               ) : (
                 <Button className="btn-header btn-primary" onClick={() => setSignupOpen(true)}>

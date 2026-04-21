@@ -1,0 +1,342 @@
+.editor-page {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  padding: 40px 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+.editor-form {
+  min-width: 0;
+}
+
+/* ── Form inputs ─────────────────────────────── */
+
+.editor-input {
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #333;
+  background: #fff;
+  box-sizing: border-box;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+
+.editor-input:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.field-row:last-child {
+  margin-bottom: 0;
+}
+
+.field-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.field-label-input {
+  width: 90px;
+}
+
+.dates-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.dates-row input {
+  flex: 1;
+}
+
+/* ── Entry cards ──────────────────────────────── */
+
+.entry-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  background: #fafafa;
+}
+
+.entry-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.entry-card-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+}
+
+.category-input {
+  font-weight: 600;
+}
+
+/* ── Bullet list ──────────────────────────────── */
+
+.bullet-list {
+  margin-top: 8px;
+}
+
+.bullet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.bullet-dot {
+  margin-top: 8px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.bullet-input {
+  flex: 1;
+  min-height: 40px;
+}
+
+/* ── Add buttons ──────────────────────────────── */
+
+.add-bullet-btn,
+.add-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px dashed #bbb;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+  width: 100%;
+  justify-content: center;
+  margin-top: 6px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.add-bullet-btn:hover,
+.add-section-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+/* ── Remove icon button ───────────────────────── */
+
+.icon-btn-remove {
+  color: #999 !important;
+  flex-shrink: 0;
+}
+
+.icon-btn-remove:hover {
+  color: #ef4444 !important;
+}
+
+/* ── Editor action buttons ────────────────────── */
+
+.editor-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.btn-export {
+  border-color: #2563eb !important;
+  color: #2563eb !important;
+  text-transform: none !important;
+  font-weight: 600 !important;
+}
+
+/* ── Format toolbar ───────────────────────────── */
+
+.format-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: #f8faff;
+  border: 1px solid #e0e8ff;
+  border-radius: 6px;
+}
+
+.format-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.format-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  width: 54px;
+  flex-shrink: 0;
+}
+
+.format-hint {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+}
+
+.format-slider {
+  flex: 1;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+/* ── Right preview panel ──────────────────────── */
+
+.editor-preview-panel {
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+}
+
+.preview-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+/* ── Resume preview ───────────────────────────── */
+
+.resume-preview {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 32px 36px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #111;
+  font-family: 'Times New Roman', Times, serif;
+  min-height: 600px;
+}
+
+.rp-header {
+  text-align: center;
+  margin-bottom: 14px;
+  border-bottom: 1.5px solid #111;
+  padding-bottom: 10px;
+}
+
+.rp-name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+.rp-contact-row {
+  font-size: 10.5px;
+  color: #444;
+}
+
+.rp-section {
+  margin-bottom: 12px;
+}
+
+.rp-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid #333;
+  margin-bottom: 6px;
+  padding-bottom: 2px;
+}
+
+.rp-entry {
+  margin-bottom: 8px;
+}
+
+.rp-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.rp-entry-main {
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+.rp-entry-dates {
+  font-size: 10.5px;
+  color: #555;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+.rp-entry-sub {
+  font-size: 10.5px;
+  color: #555;
+  font-style: italic;
+}
+
+.rp-bullets {
+  margin: 4px 0 0 14px;
+  padding: 0;
+  list-style: disc;
+}
+
+.rp-bullets li {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.rp-text {
+  margin: 0;
+  font-size: 11px;
+}
+
+.rp-skill-row {
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+
+.rp-skill-cat {
+  font-weight: 600;
+}
+
+/* ── Responsive ───────────────────────────────── */
+
+@media (max-width: 900px) {
+  .editor-page {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-preview-panel {
+    position: static;
+    max-height: none;
+  }
+}

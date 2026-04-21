@@ -5,6 +5,7 @@ import NavLayout from '@/common/layouts/NavLayout';
 import './App.css';
 import Home from './pages/home/Home';
 import Resumes from './pages/home/Resumes';
+import ResumeEditor from './pages/editor/ResumeEditor';
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path='/' element={<NavLayout />}>
             <Route index element={<Home/>}/>
             <Route path='resumes' element={<Resumes/>}/>
+            <Route path='editor' element={<ResumeEditor/>}/>
           </Route>
 
         </Routes>
