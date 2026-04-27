@@ -22,6 +22,8 @@ import {
   Star,
   StarBorder,
   Close,
+  ExpandMore,
+  ExpandLess,
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
 import { UserContext } from '@/common/contexts/UserContext';
@@ -37,6 +39,7 @@ function Resumes() {
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [expandedVersions, setExpandedVersions] = useState({});
 
   // Preview modal states
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -258,73 +261,92 @@ function Resumes() {
             <h2>No resumes yet</h2>
             <p>Upload your first resume to get started</p>
           </div>
-        ) : (
-          <div className="resumes-grid">
-            {resumes.map((resume) => (
-              <Card key={resume.id} className={`resume-card ${resume.is_active ? 'active' : ''}`}>
-                <CardContent>
-                  <div className="resume-card-header">
-                    <div className="resume-info">
-                      <h3>{resume.file_name}</h3>
-                      <div className="resume-meta">
-                        <span>{formatFileSize(resume.file_size)}</span>
-                        <span>•</span>
-                        <span>{formatDate(resume.created_at)}</span>
-                      </div>
+        ) : (() => {
+          const roots = resumes.filter((r) => !r.parent_resume_id);
+          const versionMap = {};
+          resumes.filter((r) => r.parent_resume_id).forEach((r) => {
+            if (!versionMap[r.parent_resume_id]) versionMap[r.parent_resume_id] = [];
+            versionMap[r.parent_resume_id].push(r);
+          });
+
+          const ResumeCard = ({ resume, isVersion }) => (
+            <Card
+              key={resume.id}
+              className={`resume-card ${resume.is_active ? 'active' : ''}`}
+              style={isVersion ? { marginLeft: 24, marginTop: 8, borderLeft: '3px solid #e5e7eb' } : {}}
+            >
+              <CardContent>
+                <div className="resume-card-header">
+                  <div className="resume-info">
+                    <h3>
+                      {resume.version_label && (
+                        <Chip label={resume.version_label} size="small" style={{ marginRight: 6 }} />
+                      )}
+                      {resume.file_name}
+                    </h3>
+                    <div className="resume-meta">
+                      <span>{formatFileSize(resume.file_size)}</span>
+                      <span>•</span>
+                      <span>{formatDate(resume.created_at)}</span>
                     </div>
-                    {resume.is_active && (
-                      <Chip 
-                        label="Active" 
-                        color="success" 
-                        size="small"
-                        className="active-chip"
-                      />
+                  </div>
+                  {resume.is_active && <Chip label="Active" color="success" size="small" className="active-chip" />}
+                </div>
+                <div className="resume-actions">
+                  <Tooltip title={resume.is_active ? 'Active resume' : 'Set as active'}>
+                    <IconButton onClick={() => handleSetActive(resume.id)} disabled={resume.is_active} className="icon-btn">
+                      {resume.is_active ? <Star color="warning" /> : <StarBorder />}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Edit">
+                    <IconButton onClick={() => navigate('/editor', { state: { resumeId: resume.id, fileName: resume.file_name } })} className="icon-btn">
+                      <Edit />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="View">
+                    <IconButton onClick={() => handleView(resume)} className="icon-btn"><Visibility /></IconButton>
+                  </Tooltip>
+                  <Tooltip title="Download">
+                    <IconButton onClick={() => handleDownload(resume)} className="icon-btn"><Download /></IconButton>
+                  </Tooltip>
+                  <Tooltip title="Delete">
+                    <IconButton onClick={() => handleDelete(resume.id, resume.file_name)} className="icon-btn icon-btn-danger">
+                      <Delete />
+                    </IconButton>
+                  </Tooltip>
+                </div>
+              </CardContent>
+            </Card>
+          );
+
+          return (
+            <div className="resumes-grid">
+              {roots.map((resume) => {
+                const versions = versionMap[resume.id] || [];
+                const isExpanded = expandedVersions[resume.id];
+                return (
+                  <div key={resume.id}>
+                    <ResumeCard resume={resume} isVersion={false} />
+                    {versions.length > 0 && (
+                      <>
+                        <div
+                          style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', cursor: 'pointer', color: '#6b7280', fontSize: 13 }}
+                          onClick={() => setExpandedVersions((prev) => ({ ...prev, [resume.id]: !prev[resume.id] }))}
+                        >
+                          {isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                          {versions.length} version{versions.length > 1 ? 's' : ''}
+                        </div>
+                        {isExpanded && versions.map((v) => (
+                          <ResumeCard key={v.id} resume={v} isVersion />
+                        ))}
+                      </>
                     )}
                   </div>
-
-                  <div className="resume-actions">
-                    <Tooltip title={resume.is_active ? "Active resume" : "Set as active"}>
-                      <IconButton
-                        onClick={() => handleSetActive(resume.id)}
-                        disabled={resume.is_active}
-                        className="icon-btn"
-                      >
-                        {resume.is_active ? <Star color="warning" /> : <StarBorder />}
-                      </IconButton>
-                    </Tooltip>
-
-                    <Tooltip title="Edit">
-                      <IconButton onClick={() => navigate('/editor', { state: { resumeId: resume.id, fileName: resume.file_name } })} className="icon-btn">
-                        <Edit />
-                      </IconButton>
-                    </Tooltip>
-
-                    <Tooltip title="View">
-                      <IconButton onClick={() => handleView(resume)} className="icon-btn">
-                        <Visibility />
-                      </IconButton>
-                    </Tooltip>
-
-                    <Tooltip title="Download">
-                      <IconButton onClick={() => handleDownload(resume)} className="icon-btn">
-                        <Download />
-                      </IconButton>
-                    </Tooltip>
-
-                    <Tooltip title="Delete">
-                      <IconButton 
-                        onClick={() => handleDelete(resume.id, resume.file_name)}
-                        className="icon-btn icon-btn-danger"
-                      >
-                        <Delete />
-                      </IconButton>
-                    </Tooltip>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          );
+        })()}
       </Container>
 
       <Dialog

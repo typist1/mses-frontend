@@ -44,9 +44,6 @@ Plan: LLM Analysis Pipeline
 
  cd mses-backend && npm install openai
 
- Add to .env:
- DEEPSEEK_API_KEY=sk-...
-
  DeepSeek uses the OpenAI-compatible REST API at https://api.deepseek.com. Initialize client:
  import OpenAI from 'openai';
  const client = new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' });
@@ -65,9 +62,9 @@ Plan: LLM Analysis Pipeline
  - temperature: 0 on every call (determinism for run comparison)
  - Shared callLLM(messages, maxTokens) with retry loop:
    - Parse JSON by stripping ```json fences + trimming whitespace
-   - On JSON.parse failure: retry up to 2 times, appending "Your last response was not valid JSON. Return only the JSON object, no other
+   - On JSON.parse failure: retry up to 1 time, appending "Your last response was not valid JSON. Return only the JSON object, no other
  text." correction message
-   - After 3 failures: throw a structured error { code: 'JSON_PARSE_FAILED' }
+   - After 2 failures: throw a structured error { code: 'JSON_PARSE_FAILED' }
  - Model: deepseek-chat; use max_tokens: 1000 for preflight/sanitize, 4096 for Phase 1/2, 8192 for Phase 3 chunks
  - Phase 3 is split into 2 calls to avoid max_tokens mid-output:
    - Call A: rewrite experience + projects bullets (output: { experience, projects })
@@ -89,10 +86,6 @@ Plan: LLM Analysis Pipeline
  3. New File: mses-backend/src/services/analysisUtils.js
 
  Lightweight utilities used by the analysis route:
-
- // Multi-column PDF heuristic
- // Returns true if > 40% of lines are < 20 chars (interleaved column artifact)
- detectMultiColumnPDF(text)
 
  // Fabrication check
  // Returns array of bullet indices in optimized_resume that contain numbers
@@ -195,17 +188,17 @@ Plan: LLM Analysis Pipeline
 
  No new pages — all results stay on Home.jsx (results panel below the input form). The change_log accept/reject state is local only.
 
- 7. Add History Tab on Home.jsx
+ 7. Allow users to save this new update resume as either a completely new resume or an update version of their resume. If it's an updated version
+ of their resume, save previous history of their resume but have the resume show the updated history. History can be viewed in my resumes page when
+ users click view their resume and they can change the version history as they wish.
 
- Add a tab switcher at the top of Home.jsx: "New Analysis" (current form) | "Past Analyses" (history list).
-
+ In the saved reusme or updated version, you can also view past analysis along with the history.
  History tab calls GET /analyze to fetch the user's past runs and renders a table: Job Title | Company | Fit Score | Date | "View"
  button. Clicking "View" loads the full analysis from GET /analyze/:id and renders the same results panel used for new analyses
  (read-only, no re-run). This reuses all the results display components already built.
 
- Course links — in the skills table, each recommended course code links to the Northwestern course page. Hard-code the URL pattern:
- https://www.mccormick.northwestern.edu/energy-environment/courses/{code.toLowerCase().replace('-','')}.html or just link to a search.
- Confirm the pattern with the user before implementing.
+ Course — in the skills table, each recommended course a short summary will be displayed of hte course code, title, quarter, synopsis, objectives, and keywords from that course
+MSESCoursesFull.js will contain the full information about each course which you can pull from.
 
  ---
  Items NOT Implemented (Scope Decisions)
@@ -265,8 +258,6 @@ Plan: LLM Analysis Pipeline
  ---
  Open Questions for User
 
- 1. Course URL pattern: What's the canonical URL for Northwestern MSES course pages? The Excel/skills table and analysis results should
- link there.
  2. Phase 3 chunking input: When calling Phase 3, should we send the full parsedResume JSON to each chunk call, or only the relevant
  sections (experience+projects for chunk A, summary+skills for chunk B)? Sending only relevant sections saves tokens but deviates from
  the prompt spec which expects the full resume.
