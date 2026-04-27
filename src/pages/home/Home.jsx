@@ -740,7 +740,7 @@ function App() {
         <div style={{ marginTop: 32 }}>
           <Tabs value={resultsTab} onChange={(_, v) => { if (v === 1) handleLoadHistory(); else setResultsTab(v); }}>
             <Tab label="Analysis Results" />
-            <Tab label="History" />
+            <Tab label="Past Analyses" />
           </Tabs>
 
           {resultsTab === 0 && (
