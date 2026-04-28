@@ -1,4 +1,4 @@
-import React, { useState, useRef, useContext } from 'react';
+import React, { useState, useRef, useContext, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, IconButton, Tooltip, CircularProgress } from '@mui/material';
 import { Add, Delete } from '@mui/icons-material';
@@ -10,6 +10,10 @@ import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+
+const PAPER_WIDTH = 816;
+const PAPER_HEIGHT = 1056;
+const PANEL_WIDTH = 650;
 
 const newId = () => crypto.randomUUID();
 
@@ -137,6 +141,48 @@ function SectionCard({ title, onRemove, children }) {
 }
 
 
+function toEditorSchema(parsed) {
+  return {
+    contact: {
+      name: parsed.contact?.name || '',
+      email: parsed.contact?.email || '',
+      phone: parsed.contact?.phone || '',
+      linkedin: parsed.contact?.linkedin || '',
+      location: parsed.contact?.location || '',
+      github: parsed.contact?.github || '',
+    },
+    contactExtra: [],
+    summary: parsed.summary || '',
+    experience: (parsed.experience || []).map((exp, i) => ({
+      id: `exp-${i}`, company: exp.company || '', role: exp.title || '',
+      location: exp.location || '', startDate: exp.start || '', endDate: exp.end || '',
+      bullets: exp.bullets || [],
+    })),
+    education: (parsed.education || []).map((edu, i) => ({
+      id: `edu-${i}`, school: edu.institution || '', degree: edu.degree || '',
+      field: edu.field || '', startDate: edu.start || '', endDate: edu.end || '',
+      gpa: edu.gpa || '',
+    })),
+    skills: [
+      ...(parsed.skills?.technical?.length ? [{ id: 'sk-tech', category: 'Technical', items: parsed.skills.technical.join(', ') }] : []),
+      ...(parsed.skills?.tools?.length ? [{ id: 'sk-tools', category: 'Tools', items: parsed.skills.tools.join(', ') }] : []),
+      ...(parsed.skills?.languages?.length ? [{ id: 'sk-lang', category: 'Languages', items: parsed.skills.languages.join(', ') }] : []),
+      ...(parsed.skills?.soft?.length ? [{ id: 'sk-soft', category: 'Soft Skills', items: parsed.skills.soft.join(', ') }] : []),
+    ],
+    projects: (parsed.projects || []).map((proj, i) => ({
+      id: `proj-${i}`, name: proj.name || '',
+      tech: Array.isArray(proj.tech) ? proj.tech.join(', ') : (proj.tech || ''),
+      startDate: '', endDate: '', bullets: proj.bullets || [],
+    })),
+    certifications: (parsed.certifications || []).map((cert, i) => ({
+      id: `cert-${i}`, name: cert.name || '', issuer: cert.issuer || '', date: cert.date || '',
+    })),
+    honorsAwards: (parsed.honors_awards || []).map((ha, i) => ({
+      id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
+    })),
+  };
+}
+
 export default function ResumeEditor() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -145,10 +191,68 @@ export default function ResumeEditor() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
-  const [format, setFormat] = useState({ margins: 32, lineSpacing: 1.5 });
+  const [format, setFormat] = useState({ margins: 40, lineSpacing: 1.3 });
+  const [loadingResume, setLoadingResume] = useState(false);
+  const [fitToOnePage, setFitToOnePage] = useState(false);
+  const [fitFontScale, setFitFontScale] = useState(1);
+  const [contentHeight, setContentHeight] = useState(PAPER_HEIGHT);
+  const contentWrapRef = useRef(null);
 
-  const initial = location.state?.resume || DEMO_RESUME;
-  const [resume, setResume] = useState(initial);
+  const [resume, setResume] = useState(location.state?.resume || DEMO_RESUME);
+
+  useEffect(() => {
+    const resumeId = location.state?.resumeId;
+    if (!resumeId || location.state?.resume) return;
+
+    const fetchAndParse = async () => {
+      setLoadingResume(true);
+      try {
+        const token = await getToken();
+        const { data } = await axios.post(
+          `${BACKEND_URL}/resumes/${resumeId}/parse`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setResume(toEditorSchema(data.parsed_resume));
+      } catch (err) {
+        console.error('Failed to load resume for editor:', err);
+      } finally {
+        setLoadingResume(false);
+      }
+    };
+
+    fetchAndParse();
+  }, []);
+
+  useEffect(() => {
+    if (!contentWrapRef.current) return;
+    const ro = new ResizeObserver(() => {
+      if (contentWrapRef.current) {
+        setContentHeight(contentWrapRef.current.scrollHeight);
+      }
+    });
+    ro.observe(contentWrapRef.current);
+    return () => ro.disconnect();
+  }, [loadingResume]);
+
+  // Compute zoom scale so content fills exactly one page.
+  // Runs after every resume/format change while fitToOnePage is on.
+  useLayoutEffect(() => {
+    if (!contentWrapRef.current || !fitToOnePage) {
+      setFitFontScale(1);
+      return;
+    }
+    const el = contentWrapRef.current;
+    el.style.zoom = '';                          // measure at natural size
+    const h = el.scrollHeight;
+    const scale = Math.max(0.5, Math.min(1.5, PAPER_HEIGHT / h));
+    setFitFontScale(scale);
+  }, [fitToOnePage, resume, format]);
+
+  const panelScale = PANEL_WIDTH / PAPER_WIDTH;
+  const totalScale = panelScale;
+  const numPages = fitToOnePage ? 1 : Math.ceil(contentHeight / PAPER_HEIGHT);
+  const outerHeight = numPages * PAPER_HEIGHT * panelScale;
 
   const set = (field, value) => setResume((r) => ({ ...r, [field]: value }));
   const setContact = (key, value) => setResume((r) => ({ ...r, contact: { ...r.contact, [key]: value } }));
@@ -169,7 +273,11 @@ export default function ResumeEditor() {
   const updateBullets = (field, id, bullets) => updateEntry(field, id, 'bullets', bullets);
 
   const generatePdfBlob = async () => {
-    const canvas = await html2canvas(previewRef.current, { scale: 1.5, useCORS: true });
+    const el = previewRef.current;
+    const savedTransform = el.style.transform;
+    el.style.transform = 'none';
+    const canvas = await html2canvas(el, { scale: 1.5, useCORS: true });
+    el.style.transform = savedTransform;
     const imgData = canvas.toDataURL('image/jpeg', 0.75);
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageW = pdf.internal.pageSize.getWidth();
@@ -250,6 +358,15 @@ export default function ResumeEditor() {
     { key: 'github', label: 'GitHub' },
     { key: 'location', label: 'Location' },
   ];
+
+  if (loadingResume) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', flexDirection: 'column', gap: 16 }}>
+        <CircularProgress />
+        <span style={{ color: '#6b7280' }}>Parsing resume...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="editor-page">
@@ -418,7 +535,12 @@ export default function ResumeEditor() {
 
       {/* RIGHT: PREVIEW */}
       <div className="editor-preview-panel">
-        <div className="preview-label">Live Preview</div>
+        <div className="preview-toolbar-row">
+          <span className="preview-label" style={{ marginBottom: 0 }}>Live Preview</span>
+          <button className="fit-page-btn" onClick={() => setFitToOnePage(v => !v)}>
+            {fitToOnePage ? 'Normal View' : 'Fit to 1 Page'}
+          </button>
+        </div>
 
         {/* Format toolbar */}
         <div className="format-toolbar">
@@ -446,51 +568,49 @@ export default function ResumeEditor() {
           </div>
         </div>
 
-        <div
-          className="resume-preview"
-          ref={previewRef}
-          style={{ padding: `${format.margins}px ${format.margins + 4}px`, lineHeight: format.lineSpacing }}
-        >
+        <div className="rp-page-outer" style={{ height: outerHeight }}>
+          {!fitToOnePage && Array.from({ length: numPages - 1 }, (_, i) => (
+            <div key={i} className="rp-page-break" style={{ top: (i + 1) * PAPER_HEIGHT * panelScale }} />
+          ))}
+          <div
+            className="resume-preview"
+            ref={previewRef}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: PAPER_WIDTH,
+              minHeight: numPages * PAPER_HEIGHT,
+              transform: `scale(${totalScale})`,
+              transformOrigin: 'top left',
+            }}
+          >
+          <div
+            ref={contentWrapRef}
+            style={{
+              padding: `${format.margins}px ${format.margins + 4}px`,
+              lineHeight: format.lineSpacing,
+              zoom: fitToOnePage ? fitFontScale : undefined,
+            }}
+          >
           {/* Header */}
           <div className="rp-header">
             <div className="rp-name">{resume.contact.name || 'Your Name'}</div>
             <div className="rp-contact-row">
               {[
-                resume.contact.email,
                 resume.contact.phone,
-                resume.contact.location,
+                resume.contact.email,
                 resume.contact.linkedin,
                 resume.contact.github,
+                resume.contact.location,
                 ...((resume.contactExtra || []).filter((f) => f.value).map((f) => f.value)),
-              ].filter(Boolean).join('  |  ')}
+              ].filter(Boolean).join(' | ')}
             </div>
           </div>
 
-          {/* Summary */}
+          {/* Summary — no section heading, inline block */}
           {resume.summary && (
-            <div className="rp-section">
-              <div className="rp-section-title">Summary</div>
-              <p className="rp-text">{resume.summary}</p>
-            </div>
-          )}
-
-          {/* Experience */}
-          {resume.experience.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Work Experience</div>
-              {resume.experience.map((exp) => (
-                <div key={exp.id} className="rp-entry">
-                  <div className="rp-entry-header">
-                    <span className="rp-entry-main">{exp.role}{exp.company ? ` — ${exp.company}` : ''}</span>
-                    <span className="rp-entry-dates">{[exp.startDate, exp.endDate].filter(Boolean).join(' – ')}</span>
-                  </div>
-                  {exp.location && <div className="rp-entry-sub">{exp.location}</div>}
-                  {exp.bullets.length > 0 && (
-                    <ul className="rp-bullets">{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>
-                  )}
-                </div>
-              ))}
-            </div>
+            <div className="rp-summary-block">{resume.summary}</div>
           )}
 
           {/* Education */}
@@ -501,25 +621,33 @@ export default function ResumeEditor() {
                 <div key={edu.id} className="rp-entry">
                   <div className="rp-entry-header">
                     <span className="rp-entry-main">{edu.school}</span>
-                    <span className="rp-entry-dates">{[edu.startDate, edu.endDate].filter(Boolean).join(' – ')}</span>
                   </div>
-                  <div className="rp-entry-sub">
-                    {[edu.degree, edu.field].filter(Boolean).join(', ')}
-                    {edu.gpa ? `  •  GPA: ${edu.gpa}` : ''}
+                  <div className="rp-entry-sub-row">
+                    <span className="rp-entry-sub">{[edu.degree, edu.field].filter(Boolean).join(' in ')}</span>
+                    <span className="rp-entry-sub">{[edu.startDate, edu.endDate].filter(Boolean).join(' – ')}</span>
                   </div>
+                  {edu.gpa && <div className="rp-entry-sub">GPA: {edu.gpa}</div>}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Skills */}
-          {resume.skills.length > 0 && (
+          {/* Experience */}
+          {resume.experience.length > 0 && (
             <div className="rp-section">
-              <div className="rp-section-title">Skills</div>
-              {resume.skills.map((sk) => (
-                <div key={sk.id} className="rp-skill-row">
-                  {sk.category && <span className="rp-skill-cat">{sk.category}: </span>}
-                  <span>{sk.items}</span>
+              <div className="rp-section-title">Experience</div>
+              {resume.experience.map((exp) => (
+                <div key={exp.id} className="rp-entry">
+                  <div className="rp-entry-header">
+                    <span className="rp-entry-main">{exp.company}</span>
+                    <span className="rp-entry-dates">
+                      {[exp.location, [exp.startDate, exp.endDate].filter(Boolean).join(' – ')].filter(Boolean).join(' | ')}
+                    </span>
+                  </div>
+                  {exp.role && <div className="rp-entry-sub">{exp.role}</div>}
+                  {exp.bullets.length > 0 && (
+                    <ul className="rp-bullets">{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>
+                  )}
                 </div>
               ))}
             </div>
@@ -532,13 +660,27 @@ export default function ResumeEditor() {
               {resume.projects.map((proj) => (
                 <div key={proj.id} className="rp-entry">
                   <div className="rp-entry-header">
-                    <span className="rp-entry-main">{proj.name}</span>
+                    <span className="rp-entry-main">
+                      {proj.name}{proj.tech ? <span className="rp-entry-sub"> | {proj.tech}</span> : ''}
+                    </span>
                     <span className="rp-entry-dates">{[proj.startDate, proj.endDate].filter(Boolean).join(' – ')}</span>
                   </div>
-                  {proj.tech && <div className="rp-entry-sub">{proj.tech}</div>}
                   {proj.bullets.length > 0 && (
                     <ul className="rp-bullets">{proj.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>
                   )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Technical Skills */}
+          {resume.skills.length > 0 && (
+            <div className="rp-section">
+              <div className="rp-section-title">Technical Skills</div>
+              {resume.skills.map((sk) => (
+                <div key={sk.id} className="rp-skill-row">
+                  {sk.category && <span className="rp-skill-cat">{sk.category}: </span>}
+                  <span>{sk.items}</span>
                 </div>
               ))}
             </div>
@@ -560,23 +702,24 @@ export default function ResumeEditor() {
             </div>
           )}
 
-          {/* Honors & Awards */}
+          {/* Honors & Awards — rendered as flowing text block matching PDF style */}
           {resume.honorsAwards.length > 0 && (
             <div className="rp-section">
               <div className="rp-section-title">Honors &amp; Awards</div>
-              {resume.honorsAwards.map((award) => (
-                <div key={award.id} className="rp-entry">
-                  <div className="rp-entry-header">
-                    <span className="rp-entry-main">{award.title}</span>
-                    <span className="rp-entry-dates">{award.date}</span>
-                  </div>
-                  <div className="rp-entry-sub">
-                    {award.issuer}{award.description ? `  —  ${award.description}` : ''}
-                  </div>
-                </div>
-              ))}
+              <div className="rp-honors-block">
+                {resume.honorsAwards.map((award, i) => (
+                  <span key={award.id}>
+                    {i > 0 && ' • '}
+                    {award.title}
+                    {award.issuer ? `, ${award.issuer}` : ''}
+                    {award.date ? ` (${award.date})` : ''}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
+          </div>{/* end contentWrapRef */}
+          </div>{/* end resume-preview */}
         </div>
       </div>
     </div>
