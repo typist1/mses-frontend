@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 
 import { auth, googleProvider } from '@/firebase-config';
 import {
+  createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -17,6 +19,7 @@ export const UserContext = React.createContext({
   isLoading: false,
   logout: () => { },
   login: () => { },
+  signup: () => { },
   googleAuth: () => { },
   requestPasswordReset: () => { },
 });
@@ -31,10 +34,11 @@ const buildUrl = (endpoint) =>
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const skipSyncRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
+      if (firebaseUser && !skipSyncRef.current) {
         try {
           const idToken = await firebaseUser.getIdToken();
       
@@ -76,6 +80,28 @@ export function UserProvider({ children }) {
     } catch (error) {
       console.error('Login error:', error);
       throw error;
+    }
+  };
+
+  const signup = async (email, password, username) => {
+    skipSyncRef.current = true;
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(credential.user);
+      const idToken = await credential.user.getIdToken();
+
+      const response = await fetch(buildUrl('/auth/signup'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, username }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to create account');
+
+      await signOut(auth);
+      return true;
+    } finally {
+      skipSyncRef.current = false;
     }
   };
 
@@ -124,6 +150,7 @@ const googleAuth = async () => {
     user,
     isLoading,
     login,
+    signup,
     logout,
     googleAuth,
     requestPasswordReset,

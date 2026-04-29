@@ -1,7 +1,7 @@
 import React, { useState, useRef, useContext, useEffect, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Button, IconButton, Tooltip, CircularProgress } from '@mui/material';
-import { Add, Delete } from '@mui/icons-material';
+import { Button, IconButton, CircularProgress } from '@mui/material';
+import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -10,12 +10,22 @@ import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
-
 const PAPER_WIDTH = 816;
 const PAPER_HEIGHT = 1056;
 const PANEL_WIDTH = 650;
-
 const newId = () => crypto.randomUUID();
+
+const DEFAULT_SECTION_ORDER = ['contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honorsAwards'];
+const SECTION_TITLES = {
+  contact: 'Contact Info',
+  summary: 'Professional Summary',
+  education: 'Education',
+  experience: 'Work Experience',
+  skills: 'Technical Skills',
+  projects: 'Projects',
+  certifications: 'Certifications',
+  honorsAwards: 'Honors & Awards',
+};
 
 const DEMO_RESUME = {
   contact: {
@@ -79,6 +89,7 @@ const DEMO_RESUME = {
   honorsAwards: [
     { id: newId(), title: "Dean's List", issuer: 'Northwestern University', date: '2021', description: 'Top 5% of graduate cohort' },
   ],
+  customSections: [],
 };
 
 function ContactField({ label, value, onChange, onRemove, removable = false }) {
@@ -96,29 +107,16 @@ function ContactField({ label, value, onChange, onRemove, removable = false }) {
 }
 
 function BulletList({ bullets, onChange }) {
-  const update = (i, val) => {
-    const next = [...bullets];
-    next[i] = val;
-    onChange(next);
-  };
+  const update = (i, val) => { const next = [...bullets]; next[i] = val; onChange(next); };
   const remove = (i) => onChange(bullets.filter((_, idx) => idx !== i));
   const add = () => onChange([...bullets, '']);
-
   return (
     <div className="bullet-list">
       {bullets.map((b, i) => (
         <div key={i} className="bullet-row">
           <span className="bullet-dot">•</span>
-          <textarea
-            className="editor-input bullet-input"
-            value={b}
-            onChange={(e) => update(i, e.target.value)}
-            rows={2}
-            placeholder="Bullet point"
-          />
-          <IconButton size="small" onClick={() => remove(i)} className="icon-btn-remove">
-            <Delete fontSize="small" />
-          </IconButton>
+          <textarea className="editor-input bullet-input" value={b} onChange={(e) => update(i, e.target.value)} rows={2} placeholder="Bullet point" />
+          <IconButton size="small" onClick={() => remove(i)} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
         </div>
       ))}
       <button className="add-bullet-btn" onClick={add}>+ Add bullet</button>
@@ -131,15 +129,37 @@ function SectionCard({ title, onRemove, children }) {
     <div className="entry-card">
       <div className="entry-card-header">
         <span className="entry-card-title">{title}</span>
-        <IconButton size="small" onClick={onRemove} className="icon-btn-remove">
-          <Delete fontSize="small" />
-        </IconButton>
+        <IconButton size="small" onClick={onRemove} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
       </div>
       {children}
     </div>
   );
 }
 
+function FormSection({ title, collapsed, onToggle, onMoveUp, onMoveDown, canMoveUp, canMoveDown, onRemove, children }) {
+  return (
+    <div className="section editor-collapsible-section">
+      <div className="editor-section-header" onClick={onToggle}>
+        <div className="editor-section-title-area">
+          <span className="editor-collapse-icon">{collapsed ? '▶' : '▼'}</span>
+          <h2>{title}</h2>
+        </div>
+        <div className="editor-section-controls" onClick={(e) => e.stopPropagation()}>
+          <button className="section-move-btn" disabled={!canMoveUp} onClick={onMoveUp} title="Move up">
+            <KeyboardArrowUp fontSize="small" />
+          </button>
+          <button className="section-move-btn" disabled={!canMoveDown} onClick={onMoveDown} title="Move down">
+            <KeyboardArrowDown fontSize="small" />
+          </button>
+          {onRemove && (
+            <IconButton size="small" onClick={onRemove} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
+          )}
+        </div>
+      </div>
+      {!collapsed && <div className="section-body">{children}</div>}
+    </div>
+  );
+}
 
 function toEditorSchema(parsed) {
   return {
@@ -180,6 +200,7 @@ function toEditorSchema(parsed) {
     honorsAwards: (parsed.honors_awards || []).map((ha, i) => ({
       id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
     })),
+    customSections: [],
   };
 }
 
@@ -188,29 +209,32 @@ export default function ResumeEditor() {
   const location = useLocation();
   const { getToken } = useContext(UserContext);
   const previewRef = useRef(null);
+  const contentWrapRef = useRef(null);
+
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
   const [format, setFormat] = useState({ margins: 40, lineSpacing: 1.3 });
   const [loadingResume, setLoadingResume] = useState(false);
-  const [fitToOnePage, setFitToOnePage] = useState(false);
+  const [fitToOnePage, setFitToOnePage] = useState(true);
   const [fitFontScale, setFitFontScale] = useState(1);
   const [contentHeight, setContentHeight] = useState(PAPER_HEIGHT);
-  const contentWrapRef = useRef(null);
 
   const [resume, setResume] = useState(location.state?.resume || DEMO_RESUME);
+  const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
+  const [collapsed, setCollapsed] = useState(() =>
+    Object.fromEntries(DEFAULT_SECTION_ORDER.map((k) => [k, true]))
+  );
 
   useEffect(() => {
     const resumeId = location.state?.resumeId;
     if (!resumeId || location.state?.resume) return;
-
     const fetchAndParse = async () => {
       setLoadingResume(true);
       try {
         const token = await getToken();
         const { data } = await axios.post(
-          `${BACKEND_URL}/resumes/${resumeId}/parse`,
-          {},
+          `${BACKEND_URL}/resumes/${resumeId}/parse`, {},
           { headers: { Authorization: `Bearer ${token}` } }
         );
         setResume(toEditorSchema(data.parsed_resume));
@@ -220,74 +244,104 @@ export default function ResumeEditor() {
         setLoadingResume(false);
       }
     };
-
     fetchAndParse();
   }, []);
 
   useEffect(() => {
     if (!contentWrapRef.current) return;
     const ro = new ResizeObserver(() => {
-      if (contentWrapRef.current) {
-        setContentHeight(contentWrapRef.current.scrollHeight);
-      }
+      if (contentWrapRef.current) setContentHeight(contentWrapRef.current.scrollHeight);
     });
     ro.observe(contentWrapRef.current);
     return () => ro.disconnect();
   }, [loadingResume]);
 
-  // Compute zoom scale so content fills exactly one page.
-  // Runs after every resume/format change while fitToOnePage is on.
   useLayoutEffect(() => {
-    if (!contentWrapRef.current || !fitToOnePage) {
-      setFitFontScale(1);
-      return;
-    }
+    if (!contentWrapRef.current || !fitToOnePage) { setFitFontScale(1); return; }
     const el = contentWrapRef.current;
-    el.style.zoom = '';                          // measure at natural size
+    el.style.zoom = '';
     const h = el.scrollHeight;
-    const scale = Math.max(0.5, Math.min(1.5, PAPER_HEIGHT / h));
-    setFitFontScale(scale);
+    setFitFontScale(Math.max(0.5, Math.min(1, PAPER_HEIGHT / h)));
   }, [fitToOnePage, resume, format]);
 
   const panelScale = PANEL_WIDTH / PAPER_WIDTH;
-  const totalScale = panelScale;
   const numPages = fitToOnePage ? 1 : Math.ceil(contentHeight / PAPER_HEIGHT);
   const outerHeight = numPages * PAPER_HEIGHT * panelScale;
 
+  // ── State helpers ──────────────────────────────────────────────────
   const set = (field, value) => setResume((r) => ({ ...r, [field]: value }));
   const setContact = (key, value) => setResume((r) => ({ ...r, contact: { ...r.contact, [key]: value } }));
+  const addContactField = () => setResume((r) => ({ ...r, contactExtra: [...(r.contactExtra || []), { id: newId(), label: '', value: '' }] }));
+  const updateContactExtra = (id, key, val) => setResume((r) => ({ ...r, contactExtra: r.contactExtra.map((f) => (f.id === id ? { ...f, [key]: val } : f)) }));
+  const removeContactExtra = (id) => setResume((r) => ({ ...r, contactExtra: r.contactExtra.filter((f) => f.id !== id) }));
 
-  // Contact extra fields
-  const addContactField = () =>
-    setResume((r) => ({ ...r, contactExtra: [...(r.contactExtra || []), { id: newId(), label: '', value: '' }] }));
-  const updateContactExtra = (id, key, val) =>
-    setResume((r) => ({ ...r, contactExtra: r.contactExtra.map((f) => (f.id === id ? { ...f, [key]: val } : f)) }));
-  const removeContactExtra = (id) =>
-    setResume((r) => ({ ...r, contactExtra: r.contactExtra.filter((f) => f.id !== id) }));
-
-  // Generic entry helpers
   const addEntry = (field, blank) => set(field, [...resume[field], { id: newId(), ...blank }]);
   const removeEntry = (field, id) => set(field, resume[field].filter((e) => e.id !== id));
-  const updateEntry = (field, id, key, value) =>
-    set(field, resume[field].map((e) => (e.id === id ? { ...e, [key]: value } : e)));
+  const updateEntry = (field, id, key, value) => set(field, resume[field].map((e) => (e.id === id ? { ...e, [key]: value } : e)));
   const updateBullets = (field, id, bullets) => updateEntry(field, id, 'bullets', bullets);
 
+  // ── Custom section helpers ─────────────────────────────────────────
+  const addCustomSection = () => {
+    const id = newId();
+    setResume((r) => ({ ...r, customSections: [...(r.customSections || []), { id, title: '', description: '' }] }));
+    setSectionOrder((o) => [...o, id]);
+    setCollapsed((c) => ({ ...c, [id]: false }));
+  };
+  const removeCustomSection = (id) => {
+    setResume((r) => ({ ...r, customSections: (r.customSections || []).filter((cs) => cs.id !== id) }));
+    setSectionOrder((o) => o.filter((k) => k !== id));
+    setCollapsed((c) => { const next = { ...c }; delete next[id]; return next; });
+  };
+  const updateCustomSection = (id, key, val) =>
+    setResume((r) => ({ ...r, customSections: (r.customSections || []).map((cs) => (cs.id === id ? { ...cs, [key]: val } : cs)) }));
+
+  // ── Section order helpers ──────────────────────────────────────────
+  const moveSection = (key, dir) => {
+    setSectionOrder((prev) => {
+      const idx = prev.indexOf(key);
+      const next = [...prev];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= next.length) return prev;
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+  };
+  const toggleCollapsed = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+
+  // ── PDF generation ─────────────────────────────────────────────────
   const generatePdfBlob = async () => {
     const el = previewRef.current;
-    const savedTransform = el.style.transform;
-    el.style.transform = 'none';
-    const canvas = await html2canvas(el, { scale: 1.5, useCORS: true });
-    el.style.transform = savedTransform;
-    const imgData = canvas.toDataURL('image/jpeg', 0.75);
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const imgH = (canvas.height * pageW) / canvas.width;
+    const clone = el.cloneNode(true);
+    const cloneInner = clone.firstElementChild;
+    clone.style.cssText = `position:absolute;top:-999999px;left:0;width:${PAPER_WIDTH}px;transform:none;background:#fff;`;
+    if (cloneInner) cloneInner.style.zoom = '';
+    document.body.appendChild(clone);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const canvas = await html2canvas(clone, {
+      scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', width: PAPER_WIDTH,
+    });
+    document.body.removeChild(clone);
+
+    const contentH = canvas.height / 2;
+    const imgData = canvas.toDataURL('image/png');
+
+    if (fitToOnePage) {
+      const scale = Math.min(1, PAPER_HEIGHT / contentH);
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PAPER_WIDTH, PAPER_HEIGHT] });
+      pdf.addImage(imgData, 'PNG', 0, 0, PAPER_WIDTH, contentH * scale);
+      return pdf.output('blob');
+    }
+
+    // Multi-page: tile across letter-size pages
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PAPER_WIDTH, PAPER_HEIGHT] });
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
     let y = 0;
-    while (y < imgH) {
+    while (y < contentH) {
       if (y > 0) pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, -y, pageW, imgH);
-      y += pageH;
+      pdf.addImage(imgData, 'PNG', 0, -y, pdfW, contentH);
+      y += pdfH;
     }
     return pdf.output('blob');
   };
@@ -313,7 +367,8 @@ export default function ResumeEditor() {
   const handleExportDocx = async () => {
     setExportingDocx(true);
     try {
-      const doc = buildDocx(resume);
+      const resumeWithOrder = { ...resume, sectionOrder };
+      const doc = buildDocx(resumeWithOrder, fitToOnePage ? fitFontScale : 1);
       const blob = await Packer.toBlob(doc);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -350,14 +405,292 @@ export default function ResumeEditor() {
     }
   };
 
+  // ── Form section renderer ──────────────────────────────────────────
   const allContacts = [
-    { key: 'name', label: 'Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Phone' },
-    { key: 'linkedin', label: 'LinkedIn' },
-    { key: 'github', label: 'GitHub' },
-    { key: 'location', label: 'Location' },
+    { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' },
+    { key: 'phone', label: 'Phone' }, { key: 'linkedin', label: 'LinkedIn' },
+    { key: 'github', label: 'GitHub' }, { key: 'location', label: 'Location' },
   ];
+
+  const renderFormSection = (key, idx) => {
+    const canMoveUp = idx > 0;
+    const canMoveDown = idx < sectionOrder.length - 1;
+    const isCollapsed = collapsed[key] ?? true;
+    const props = {
+      key,
+      collapsed: isCollapsed,
+      onToggle: () => toggleCollapsed(key),
+      onMoveUp: () => moveSection(key, -1),
+      onMoveDown: () => moveSection(key, 1),
+      canMoveUp,
+      canMoveDown,
+    };
+
+    if (key === 'contact') return (
+      <FormSection {...props} title="Contact Info">
+        {allContacts.map(({ key: k, label }) => (
+          <div className="field-row" key={k}>
+            <span className="field-label">{label}</span>
+            <input className="editor-input" value={resume.contact[k] || ''} onChange={(e) => setContact(k, e.target.value)} placeholder={label} />
+          </div>
+        ))}
+        {(resume.contactExtra || []).map((f) => (
+          <ContactField key={f.id} label={f.label} value={f.value} removable onChange={(k, v) => updateContactExtra(f.id, k, v)} onRemove={() => removeContactExtra(f.id)} />
+        ))}
+        <button className="add-bullet-btn" onClick={addContactField}>+ Add field</button>
+      </FormSection>
+    );
+
+    if (key === 'summary') return (
+      <FormSection {...props} title="Professional Summary">
+        <textarea className="editor-input" value={resume.summary} onChange={(e) => set('summary', e.target.value)} rows={4} placeholder="Write a brief professional summary..." />
+      </FormSection>
+    );
+
+    if (key === 'experience') return (
+      <FormSection {...props} title="Work Experience">
+        {resume.experience.map((exp) => (
+          <SectionCard key={exp.id} title={exp.company || 'New Entry'} onRemove={() => removeEntry('experience', exp.id)}>
+            <div className="field-row"><span className="field-label">Company</span><input className="editor-input" value={exp.company} onChange={(e) => updateEntry('experience', exp.id, 'company', e.target.value)} placeholder="Company" /></div>
+            <div className="field-row"><span className="field-label">Role</span><input className="editor-input" value={exp.role} onChange={(e) => updateEntry('experience', exp.id, 'role', e.target.value)} placeholder="Job Title" /></div>
+            <div className="field-row"><span className="field-label">Location</span><input className="editor-input" value={exp.location} onChange={(e) => updateEntry('experience', exp.id, 'location', e.target.value)} placeholder="City, ST" /></div>
+            <div className="dates-row">
+              <input className="editor-input" value={exp.startDate} onChange={(e) => updateEntry('experience', exp.id, 'startDate', e.target.value)} placeholder="Start" />
+              <span>–</span>
+              <input className="editor-input" value={exp.endDate} onChange={(e) => updateEntry('experience', exp.id, 'endDate', e.target.value)} placeholder="End / Present" />
+            </div>
+            <BulletList bullets={exp.bullets} onChange={(b) => updateBullets('experience', exp.id, b)} />
+          </SectionCard>
+        ))}
+        <button className="add-section-btn" onClick={() => addEntry('experience', { company: '', role: '', location: '', startDate: '', endDate: '', bullets: [] })}>
+          <Add fontSize="small" /> Add Experience
+        </button>
+      </FormSection>
+    );
+
+    if (key === 'education') return (
+      <FormSection {...props} title="Education">
+        {resume.education.map((edu) => (
+          <SectionCard key={edu.id} title={edu.school || 'New Entry'} onRemove={() => removeEntry('education', edu.id)}>
+            <div className="field-row"><span className="field-label">School</span><input className="editor-input" value={edu.school} onChange={(e) => updateEntry('education', edu.id, 'school', e.target.value)} placeholder="University Name" /></div>
+            <div className="field-row"><span className="field-label">Degree</span><input className="editor-input" value={edu.degree} onChange={(e) => updateEntry('education', edu.id, 'degree', e.target.value)} placeholder="B.S. / M.S. / Ph.D." /></div>
+            <div className="field-row"><span className="field-label">Field</span><input className="editor-input" value={edu.field} onChange={(e) => updateEntry('education', edu.id, 'field', e.target.value)} placeholder="Computer Science" /></div>
+            <div className="dates-row">
+              <input className="editor-input" value={edu.startDate} onChange={(e) => updateEntry('education', edu.id, 'startDate', e.target.value)} placeholder="Start" />
+              <span>–</span>
+              <input className="editor-input" value={edu.endDate} onChange={(e) => updateEntry('education', edu.id, 'endDate', e.target.value)} placeholder="End" />
+            </div>
+            <div className="field-row"><span className="field-label">GPA</span><input className="editor-input" value={edu.gpa} onChange={(e) => updateEntry('education', edu.id, 'gpa', e.target.value)} placeholder="3.9" /></div>
+          </SectionCard>
+        ))}
+        <button className="add-section-btn" onClick={() => addEntry('education', { school: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' })}>
+          <Add fontSize="small" /> Add Education
+        </button>
+      </FormSection>
+    );
+
+    if (key === 'skills') return (
+      <FormSection {...props} title="Technical Skills">
+        {resume.skills.map((sk) => (
+          <div key={sk.id} className="entry-card">
+            <div className="entry-card-header">
+              <input className="editor-input category-input" value={sk.category} onChange={(e) => updateEntry('skills', sk.id, 'category', e.target.value)} placeholder="Category (e.g. Languages)" />
+              <IconButton size="small" onClick={() => removeEntry('skills', sk.id)} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
+            </div>
+            <input className="editor-input" value={sk.items} onChange={(e) => updateEntry('skills', sk.id, 'items', e.target.value)} placeholder="Skill1, Skill2, Skill3..." />
+          </div>
+        ))}
+        <button className="add-section-btn" onClick={() => addEntry('skills', { category: '', items: '' })}>
+          <Add fontSize="small" /> Add Skill Group
+        </button>
+      </FormSection>
+    );
+
+    if (key === 'projects') return (
+      <FormSection {...props} title="Projects">
+        {resume.projects.map((proj) => (
+          <SectionCard key={proj.id} title={proj.name || 'New Entry'} onRemove={() => removeEntry('projects', proj.id)}>
+            <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={proj.name} onChange={(e) => updateEntry('projects', proj.id, 'name', e.target.value)} placeholder="Project Name" /></div>
+            <div className="field-row"><span className="field-label">Tech</span><input className="editor-input" value={proj.tech} onChange={(e) => updateEntry('projects', proj.id, 'tech', e.target.value)} placeholder="React, Node.js, ..." /></div>
+            <div className="dates-row">
+              <input className="editor-input" value={proj.startDate} onChange={(e) => updateEntry('projects', proj.id, 'startDate', e.target.value)} placeholder="Start" />
+              <span>–</span>
+              <input className="editor-input" value={proj.endDate} onChange={(e) => updateEntry('projects', proj.id, 'endDate', e.target.value)} placeholder="End" />
+            </div>
+            <BulletList bullets={proj.bullets} onChange={(b) => updateBullets('projects', proj.id, b)} />
+          </SectionCard>
+        ))}
+        <button className="add-section-btn" onClick={() => addEntry('projects', { name: '', tech: '', startDate: '', endDate: '', bullets: [] })}>
+          <Add fontSize="small" /> Add Project
+        </button>
+      </FormSection>
+    );
+
+    if (key === 'certifications') return (
+      <FormSection {...props} title="Certifications">
+        {resume.certifications.map((cert) => (
+          <SectionCard key={cert.id} title={cert.name || 'New Entry'} onRemove={() => removeEntry('certifications', cert.id)}>
+            <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={cert.name} onChange={(e) => updateEntry('certifications', cert.id, 'name', e.target.value)} placeholder="Certification Name" /></div>
+            <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={cert.issuer} onChange={(e) => updateEntry('certifications', cert.id, 'issuer', e.target.value)} placeholder="Issuing Organization" /></div>
+            <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={cert.date} onChange={(e) => updateEntry('certifications', cert.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
+          </SectionCard>
+        ))}
+        <button className="add-section-btn" onClick={() => addEntry('certifications', { name: '', issuer: '', date: '' })}>
+          <Add fontSize="small" /> Add Certification
+        </button>
+      </FormSection>
+    );
+
+    if (key === 'honorsAwards') return (
+      <FormSection {...props} title="Honors & Awards">
+        {resume.honorsAwards.map((award) => (
+          <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honorsAwards', award.id)}>
+            <div className="field-row"><span className="field-label">Title</span><input className="editor-input" value={award.title} onChange={(e) => updateEntry('honorsAwards', award.id, 'title', e.target.value)} placeholder="Award Name" /></div>
+            <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={award.issuer} onChange={(e) => updateEntry('honorsAwards', award.id, 'issuer', e.target.value)} placeholder="Organization" /></div>
+            <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={award.date} onChange={(e) => updateEntry('honorsAwards', award.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
+            <div className="field-row"><span className="field-label">Description</span><input className="editor-input" value={award.description} onChange={(e) => updateEntry('honorsAwards', award.id, 'description', e.target.value)} placeholder="Brief description" /></div>
+          </SectionCard>
+        ))}
+        <button className="add-section-btn" onClick={() => addEntry('honorsAwards', { title: '', issuer: '', date: '', description: '' })}>
+          <Add fontSize="small" /> Add Honor / Award
+        </button>
+      </FormSection>
+    );
+
+    // Custom section
+    const cs = (resume.customSections || []).find((c) => c.id === key);
+    if (!cs) return null;
+    return (
+      <FormSection {...props} title={cs.title || 'Custom Section'} onRemove={() => removeCustomSection(key)}>
+        <div className="field-row">
+          <span className="field-label">Title</span>
+          <input className="editor-input" value={cs.title} onChange={(e) => updateCustomSection(key, 'title', e.target.value)} placeholder="Section Title" />
+        </div>
+        <textarea className="editor-input" value={cs.description} onChange={(e) => updateCustomSection(key, 'description', e.target.value)} rows={4} placeholder="Section content..." style={{ marginTop: 8 }} />
+      </FormSection>
+    );
+  };
+
+  // ── Preview section renderer ───────────────────────────────────────
+  const renderPreviewSection = (key) => {
+    if (key === 'contact') return (
+      <div key="contact" className="rp-header">
+        <div className="rp-name">{resume.contact.name || 'Your Name'}</div>
+        <div className="rp-contact-row">
+          {[
+            resume.contact.phone, resume.contact.email, resume.contact.linkedin,
+            resume.contact.github, resume.contact.location,
+            ...((resume.contactExtra || []).filter((f) => f.value).map((f) => f.value)),
+          ].filter(Boolean).join(' | ')}
+        </div>
+      </div>
+    );
+
+    if (key === 'summary') return resume.summary ? (
+      <div key="summary" className="rp-summary-block">{resume.summary}</div>
+    ) : null;
+
+    if (key === 'education' && resume.education.length > 0) return (
+      <div key="education" className="rp-section">
+        <div className="rp-section-title">Education</div>
+        {resume.education.map((edu) => (
+          <div key={edu.id} className="rp-entry">
+            <div className="rp-entry-header"><span className="rp-entry-main">{edu.school}</span></div>
+            <div className="rp-entry-sub-row">
+              <span className="rp-entry-sub">{[edu.degree, edu.field].filter(Boolean).join(' in ')}</span>
+              <span className="rp-entry-sub">{[edu.startDate, edu.endDate].filter(Boolean).join(' – ')}</span>
+            </div>
+            {edu.gpa && <div className="rp-entry-sub">GPA: {edu.gpa}</div>}
+          </div>
+        ))}
+      </div>
+    );
+
+    if (key === 'experience' && resume.experience.length > 0) return (
+      <div key="experience" className="rp-section">
+        <div className="rp-section-title">Experience</div>
+        {resume.experience.map((exp) => (
+          <div key={exp.id} className="rp-entry">
+            <div className="rp-entry-header">
+              <span className="rp-entry-main">{exp.company}</span>
+              <span className="rp-entry-dates">{[exp.location, [exp.startDate, exp.endDate].filter(Boolean).join(' – ')].filter(Boolean).join(' | ')}</span>
+            </div>
+            {exp.role && <div className="rp-entry-sub">{exp.role}</div>}
+            {exp.bullets.length > 0 && <ul className="rp-bullets">{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
+          </div>
+        ))}
+      </div>
+    );
+
+    if (key === 'projects' && resume.projects.length > 0) return (
+      <div key="projects" className="rp-section">
+        <div className="rp-section-title">Projects</div>
+        {resume.projects.map((proj) => (
+          <div key={proj.id} className="rp-entry">
+            <div className="rp-entry-header">
+              <span className="rp-entry-main">{proj.name}{proj.tech ? <span className="rp-entry-sub"> | {proj.tech}</span> : ''}</span>
+              <span className="rp-entry-dates">{[proj.startDate, proj.endDate].filter(Boolean).join(' – ')}</span>
+            </div>
+            {proj.bullets.length > 0 && <ul className="rp-bullets">{proj.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
+          </div>
+        ))}
+      </div>
+    );
+
+    if (key === 'skills' && resume.skills.length > 0) return (
+      <div key="skills" className="rp-section">
+        <div className="rp-section-title">Technical Skills</div>
+        {resume.skills.map((sk) => (
+          <div key={sk.id} className="rp-skill-row">
+            {sk.category && <span className="rp-skill-cat">{sk.category}: </span>}
+            <span>{sk.items}</span>
+          </div>
+        ))}
+      </div>
+    );
+
+    if (key === 'certifications' && resume.certifications.length > 0) return (
+      <div key="certifications" className="rp-section">
+        <div className="rp-section-title">Certifications</div>
+        {resume.certifications.map((cert) => (
+          <div key={cert.id} className="rp-entry">
+            <div className="rp-entry-header">
+              <span className="rp-entry-main">{cert.name}</span>
+              <span className="rp-entry-dates">{cert.date}</span>
+            </div>
+            {cert.issuer && <div className="rp-entry-sub">{cert.issuer}</div>}
+          </div>
+        ))}
+      </div>
+    );
+
+    if (key === 'honorsAwards' && resume.honorsAwards.length > 0) return (
+      <div key="honorsAwards" className="rp-section">
+        <div className="rp-section-title">Honors &amp; Awards</div>
+        <div className="rp-honors-block">
+          {resume.honorsAwards.map((award, i) => (
+            <span key={award.id}>
+              {i > 0 && ' • '}
+              {award.title}
+              {award.issuer ? `, ${award.issuer}` : ''}
+              {award.date ? ` (${award.date})` : ''}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+
+    // Custom section
+    const cs = (resume.customSections || []).find((c) => c.id === key);
+    if (cs && (cs.title || cs.description)) return (
+      <div key={key} className="rp-section">
+        {cs.title && <div className="rp-section-title">{cs.title}</div>}
+        {cs.description && <div className="rp-summary-block" style={{ textAlign: 'left', paddingLeft: 8 }}>{cs.description}</div>}
+      </div>
+    );
+
+    return null;
+  };
 
   if (loadingResume) {
     return (
@@ -372,154 +705,12 @@ export default function ResumeEditor() {
     <div className="editor-page">
       {/* LEFT: FORM */}
       <div className="editor-form">
-        {/* Contact */}
-        <div className="section">
-          <div className="section-header"><h2>Contact Info</h2></div>
-          <div className="section-body">
-            {allContacts.map(({ key, label }) => (
-              <div className="field-row" key={key}>
-                <span className="field-label">{label}</span>
-                <input className="editor-input" value={resume.contact[key] || ''} onChange={(e) => setContact(key, e.target.value)} placeholder={label} />
-              </div>
-            ))}
-            {(resume.contactExtra || []).map((f) => (
-              <ContactField key={f.id} label={f.label} value={f.value} removable onChange={(k, v) => updateContactExtra(f.id, k, v)} onRemove={() => removeContactExtra(f.id)} />
-            ))}
-            <button className="add-bullet-btn" onClick={addContactField}>+ Add field</button>
-          </div>
-        </div>
+        {sectionOrder.map((key, idx) => renderFormSection(key, idx))}
 
-        {/* Summary */}
-        <div className="section">
-          <div className="section-header"><h2>Professional Summary</h2></div>
-          <div className="section-body">
-            <textarea className="editor-input" value={resume.summary} onChange={(e) => set('summary', e.target.value)} rows={4} placeholder="Write a brief professional summary..." />
-          </div>
-        </div>
+        <button className="add-section-btn" style={{ marginBottom: 8 }} onClick={addCustomSection}>
+          <Add fontSize="small" /> Add Custom Section
+        </button>
 
-        {/* Experience */}
-        <div className="section">
-          <div className="section-header"><h2>Work Experience</h2></div>
-          <div className="section-body">
-            {resume.experience.map((exp) => (
-              <SectionCard key={exp.id} title={exp.company || 'New Entry'} onRemove={() => removeEntry('experience', exp.id)}>
-                <div className="field-row"><span className="field-label">Company</span><input className="editor-input" value={exp.company} onChange={(e) => updateEntry('experience', exp.id, 'company', e.target.value)} placeholder="Company" /></div>
-                <div className="field-row"><span className="field-label">Role</span><input className="editor-input" value={exp.role} onChange={(e) => updateEntry('experience', exp.id, 'role', e.target.value)} placeholder="Job Title" /></div>
-                <div className="field-row"><span className="field-label">Location</span><input className="editor-input" value={exp.location} onChange={(e) => updateEntry('experience', exp.id, 'location', e.target.value)} placeholder="City, ST" /></div>
-                <div className="dates-row">
-                  <input className="editor-input" value={exp.startDate} onChange={(e) => updateEntry('experience', exp.id, 'startDate', e.target.value)} placeholder="Start" />
-                  <span>–</span>
-                  <input className="editor-input" value={exp.endDate} onChange={(e) => updateEntry('experience', exp.id, 'endDate', e.target.value)} placeholder="End / Present" />
-                </div>
-                <BulletList bullets={exp.bullets} onChange={(b) => updateBullets('experience', exp.id, b)} />
-              </SectionCard>
-            ))}
-            <button className="add-section-btn" onClick={() => addEntry('experience', { company: '', role: '', location: '', startDate: '', endDate: '', bullets: [] })}>
-              <Add fontSize="small" /> Add Experience
-            </button>
-          </div>
-        </div>
-
-        {/* Education */}
-        <div className="section">
-          <div className="section-header"><h2>Education</h2></div>
-          <div className="section-body">
-            {resume.education.map((edu) => (
-              <SectionCard key={edu.id} title={edu.school || 'New Entry'} onRemove={() => removeEntry('education', edu.id)}>
-                <div className="field-row"><span className="field-label">School</span><input className="editor-input" value={edu.school} onChange={(e) => updateEntry('education', edu.id, 'school', e.target.value)} placeholder="University Name" /></div>
-                <div className="field-row"><span className="field-label">Degree</span><input className="editor-input" value={edu.degree} onChange={(e) => updateEntry('education', edu.id, 'degree', e.target.value)} placeholder="B.S. / M.S. / Ph.D." /></div>
-                <div className="field-row"><span className="field-label">Field</span><input className="editor-input" value={edu.field} onChange={(e) => updateEntry('education', edu.id, 'field', e.target.value)} placeholder="Computer Science" /></div>
-                <div className="dates-row">
-                  <input className="editor-input" value={edu.startDate} onChange={(e) => updateEntry('education', edu.id, 'startDate', e.target.value)} placeholder="Start" />
-                  <span>–</span>
-                  <input className="editor-input" value={edu.endDate} onChange={(e) => updateEntry('education', edu.id, 'endDate', e.target.value)} placeholder="End" />
-                </div>
-                <div className="field-row"><span className="field-label">GPA</span><input className="editor-input" value={edu.gpa} onChange={(e) => updateEntry('education', edu.id, 'gpa', e.target.value)} placeholder="3.9" /></div>
-              </SectionCard>
-            ))}
-            <button className="add-section-btn" onClick={() => addEntry('education', { school: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' })}>
-              <Add fontSize="small" /> Add Education
-            </button>
-          </div>
-        </div>
-
-        {/* Skills */}
-        <div className="section">
-          <div className="section-header"><h2>Skills</h2></div>
-          <div className="section-body">
-            {resume.skills.map((sk) => (
-              <div key={sk.id} className="entry-card">
-                <div className="entry-card-header">
-                  <input className="editor-input category-input" value={sk.category} onChange={(e) => updateEntry('skills', sk.id, 'category', e.target.value)} placeholder="Category (e.g. Languages)" />
-                  <IconButton size="small" onClick={() => removeEntry('skills', sk.id)} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
-                </div>
-                <input className="editor-input" value={sk.items} onChange={(e) => updateEntry('skills', sk.id, 'items', e.target.value)} placeholder="Skill1, Skill2, Skill3..." />
-              </div>
-            ))}
-            <button className="add-section-btn" onClick={() => addEntry('skills', { category: '', items: '' })}>
-              <Add fontSize="small" /> Add Skill Group
-            </button>
-          </div>
-        </div>
-
-        {/* Projects */}
-        <div className="section">
-          <div className="section-header"><h2>Projects</h2></div>
-          <div className="section-body">
-            {resume.projects.map((proj) => (
-              <SectionCard key={proj.id} title={proj.name || 'New Entry'} onRemove={() => removeEntry('projects', proj.id)}>
-                <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={proj.name} onChange={(e) => updateEntry('projects', proj.id, 'name', e.target.value)} placeholder="Project Name" /></div>
-                <div className="field-row"><span className="field-label">Tech</span><input className="editor-input" value={proj.tech} onChange={(e) => updateEntry('projects', proj.id, 'tech', e.target.value)} placeholder="React, Node.js, ..." /></div>
-                <div className="dates-row">
-                  <input className="editor-input" value={proj.startDate} onChange={(e) => updateEntry('projects', proj.id, 'startDate', e.target.value)} placeholder="Start" />
-                  <span>–</span>
-                  <input className="editor-input" value={proj.endDate} onChange={(e) => updateEntry('projects', proj.id, 'endDate', e.target.value)} placeholder="End" />
-                </div>
-                <BulletList bullets={proj.bullets} onChange={(b) => updateBullets('projects', proj.id, b)} />
-              </SectionCard>
-            ))}
-            <button className="add-section-btn" onClick={() => addEntry('projects', { name: '', tech: '', startDate: '', endDate: '', bullets: [] })}>
-              <Add fontSize="small" /> Add Project
-            </button>
-          </div>
-        </div>
-
-        {/* Certifications */}
-        <div className="section">
-          <div className="section-header"><h2>Certifications</h2></div>
-          <div className="section-body">
-            {resume.certifications.map((cert) => (
-              <SectionCard key={cert.id} title={cert.name || 'New Entry'} onRemove={() => removeEntry('certifications', cert.id)}>
-                <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={cert.name} onChange={(e) => updateEntry('certifications', cert.id, 'name', e.target.value)} placeholder="Certification Name" /></div>
-                <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={cert.issuer} onChange={(e) => updateEntry('certifications', cert.id, 'issuer', e.target.value)} placeholder="Issuing Organization" /></div>
-                <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={cert.date} onChange={(e) => updateEntry('certifications', cert.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
-              </SectionCard>
-            ))}
-            <button className="add-section-btn" onClick={() => addEntry('certifications', { name: '', issuer: '', date: '' })}>
-              <Add fontSize="small" /> Add Certification
-            </button>
-          </div>
-        </div>
-
-        {/* Honors & Awards */}
-        <div className="section">
-          <div className="section-header"><h2>Honors &amp; Awards</h2></div>
-          <div className="section-body">
-            {resume.honorsAwards.map((award) => (
-              <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honorsAwards', award.id)}>
-                <div className="field-row"><span className="field-label">Title</span><input className="editor-input" value={award.title} onChange={(e) => updateEntry('honorsAwards', award.id, 'title', e.target.value)} placeholder="Award Name" /></div>
-                <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={award.issuer} onChange={(e) => updateEntry('honorsAwards', award.id, 'issuer', e.target.value)} placeholder="Organization" /></div>
-                <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={award.date} onChange={(e) => updateEntry('honorsAwards', award.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
-                <div className="field-row"><span className="field-label">Description</span><input className="editor-input" value={award.description} onChange={(e) => updateEntry('honorsAwards', award.id, 'description', e.target.value)} placeholder="Brief description" /></div>
-              </SectionCard>
-            ))}
-            <button className="add-section-btn" onClick={() => addEntry('honorsAwards', { title: '', issuer: '', date: '', description: '' })}>
-              <Add fontSize="small" /> Add Honor / Award
-            </button>
-          </div>
-        </div>
-
-        {/* Actions */}
         <div className="editor-actions">
           <Button variant="outlined" onClick={handleExportPdf} disabled={exporting} className="btn-export">
             {exporting ? <CircularProgress size={18} /> : 'Export PDF'}
@@ -537,33 +728,22 @@ export default function ResumeEditor() {
       <div className="editor-preview-panel">
         <div className="preview-toolbar-row">
           <span className="preview-label" style={{ marginBottom: 0 }}>Live Preview</span>
-          <button className="fit-page-btn" onClick={() => setFitToOnePage(v => !v)}>
+          <button className="fit-page-btn" onClick={() => setFitToOnePage((v) => !v)}>
             {fitToOnePage ? 'Normal View' : 'Fit to 1 Page'}
           </button>
         </div>
 
-        {/* Format toolbar */}
         <div className="format-toolbar">
           <div className="format-row">
             <span className="format-label">Margins</span>
             <span className="format-hint">Narrow</span>
-            <input
-              type="range" min={16} max={48} step={4}
-              value={format.margins}
-              onChange={(e) => setFormat((f) => ({ ...f, margins: Number(e.target.value) }))}
-              className="format-slider"
-            />
+            <input type="range" min={16} max={48} step={4} value={format.margins} onChange={(e) => setFormat((f) => ({ ...f, margins: Number(e.target.value) }))} className="format-slider" />
             <span className="format-hint">Wide</span>
           </div>
           <div className="format-row">
             <span className="format-label">Spacing</span>
             <span className="format-hint">Tight</span>
-            <input
-              type="range" min={1.2} max={2.0} step={0.1}
-              value={format.lineSpacing}
-              onChange={(e) => setFormat((f) => ({ ...f, lineSpacing: Number(e.target.value) }))}
-              className="format-slider"
-            />
+            <input type="range" min={1.2} max={2.0} step={0.1} value={format.lineSpacing} onChange={(e) => setFormat((f) => ({ ...f, lineSpacing: Number(e.target.value) }))} className="format-slider" />
             <span className="format-hint">Loose</span>
           </div>
         </div>
@@ -576,150 +756,24 @@ export default function ResumeEditor() {
             className="resume-preview"
             ref={previewRef}
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
+              position: 'absolute', top: 0, left: 0,
               width: PAPER_WIDTH,
               minHeight: numPages * PAPER_HEIGHT,
-              transform: `scale(${totalScale})`,
+              transform: `scale(${panelScale})`,
               transformOrigin: 'top left',
             }}
           >
-          <div
-            ref={contentWrapRef}
-            style={{
-              padding: `${format.margins}px ${format.margins + 4}px`,
-              lineHeight: format.lineSpacing,
-              zoom: fitToOnePage ? fitFontScale : undefined,
-            }}
-          >
-          {/* Header */}
-          <div className="rp-header">
-            <div className="rp-name">{resume.contact.name || 'Your Name'}</div>
-            <div className="rp-contact-row">
-              {[
-                resume.contact.phone,
-                resume.contact.email,
-                resume.contact.linkedin,
-                resume.contact.github,
-                resume.contact.location,
-                ...((resume.contactExtra || []).filter((f) => f.value).map((f) => f.value)),
-              ].filter(Boolean).join(' | ')}
+            <div
+              ref={contentWrapRef}
+              style={{
+                padding: `${format.margins}px ${format.margins + 4}px`,
+                lineHeight: format.lineSpacing,
+                zoom: fitToOnePage ? fitFontScale : undefined,
+              }}
+            >
+              {sectionOrder.map((key) => renderPreviewSection(key))}
             </div>
           </div>
-
-          {/* Summary — no section heading, inline block */}
-          {resume.summary && (
-            <div className="rp-summary-block">{resume.summary}</div>
-          )}
-
-          {/* Education */}
-          {resume.education.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Education</div>
-              {resume.education.map((edu) => (
-                <div key={edu.id} className="rp-entry">
-                  <div className="rp-entry-header">
-                    <span className="rp-entry-main">{edu.school}</span>
-                  </div>
-                  <div className="rp-entry-sub-row">
-                    <span className="rp-entry-sub">{[edu.degree, edu.field].filter(Boolean).join(' in ')}</span>
-                    <span className="rp-entry-sub">{[edu.startDate, edu.endDate].filter(Boolean).join(' – ')}</span>
-                  </div>
-                  {edu.gpa && <div className="rp-entry-sub">GPA: {edu.gpa}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Experience */}
-          {resume.experience.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Experience</div>
-              {resume.experience.map((exp) => (
-                <div key={exp.id} className="rp-entry">
-                  <div className="rp-entry-header">
-                    <span className="rp-entry-main">{exp.company}</span>
-                    <span className="rp-entry-dates">
-                      {[exp.location, [exp.startDate, exp.endDate].filter(Boolean).join(' – ')].filter(Boolean).join(' | ')}
-                    </span>
-                  </div>
-                  {exp.role && <div className="rp-entry-sub">{exp.role}</div>}
-                  {exp.bullets.length > 0 && (
-                    <ul className="rp-bullets">{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Projects */}
-          {resume.projects.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Projects</div>
-              {resume.projects.map((proj) => (
-                <div key={proj.id} className="rp-entry">
-                  <div className="rp-entry-header">
-                    <span className="rp-entry-main">
-                      {proj.name}{proj.tech ? <span className="rp-entry-sub"> | {proj.tech}</span> : ''}
-                    </span>
-                    <span className="rp-entry-dates">{[proj.startDate, proj.endDate].filter(Boolean).join(' – ')}</span>
-                  </div>
-                  {proj.bullets.length > 0 && (
-                    <ul className="rp-bullets">{proj.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Technical Skills */}
-          {resume.skills.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Technical Skills</div>
-              {resume.skills.map((sk) => (
-                <div key={sk.id} className="rp-skill-row">
-                  {sk.category && <span className="rp-skill-cat">{sk.category}: </span>}
-                  <span>{sk.items}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Certifications */}
-          {resume.certifications.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Certifications</div>
-              {resume.certifications.map((cert) => (
-                <div key={cert.id} className="rp-entry">
-                  <div className="rp-entry-header">
-                    <span className="rp-entry-main">{cert.name}</span>
-                    <span className="rp-entry-dates">{cert.date}</span>
-                  </div>
-                  {cert.issuer && <div className="rp-entry-sub">{cert.issuer}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Honors & Awards — rendered as flowing text block matching PDF style */}
-          {resume.honorsAwards.length > 0 && (
-            <div className="rp-section">
-              <div className="rp-section-title">Honors &amp; Awards</div>
-              <div className="rp-honors-block">
-                {resume.honorsAwards.map((award, i) => (
-                  <span key={award.id}>
-                    {i > 0 && ' • '}
-                    {award.title}
-                    {award.issuer ? `, ${award.issuer}` : ''}
-                    {award.date ? ` (${award.date})` : ''}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          </div>{/* end contentWrapRef */}
-          </div>{/* end resume-preview */}
         </div>
       </div>
     </div>

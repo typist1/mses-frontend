@@ -42,7 +42,6 @@ function NavBar({ children }) {
                 <>
                   <Button className={navCls('/')} href="/">Home</Button>
                   <Button className={navCls('/resumes')} href="/resumes">My Resumes</Button>
-                  <Button className={navCls('/editor')} href="/editor">Resume Editor</Button>
                   <Button className="btn-header" onClick={handleLogout}>Sign Out</Button>
                 </>
               ) : (

@@ -397,6 +397,84 @@
   line-height: 1.4;
 }
 
+/* ── Collapsible form sections ────────────────── */
+
+.editor-collapsible-section {
+  padding: 0 !important;
+  margin-bottom: 10px !important;
+}
+
+.editor-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  padding: 10px 14px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  margin-bottom: 0 !important;
+}
+
+.editor-section-header:hover {
+  background: #e9eaf0;
+}
+
+.editor-section-title-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-section-title-area h2 {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: #1f2937 !important;
+  margin: 0 !important;
+}
+
+.editor-collapse-icon {
+  font-size: 10px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.editor-section-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.section-move-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 2px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.section-move-btn:hover:not(:disabled) {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.section-move-btn:disabled {
+  color: #d1d5db;
+  cursor: default;
+}
+
+.editor-collapsible-section .section-body {
+  padding: 12px 14px 14px;
+}
+
 /* ── Responsive ───────────────────────────────── */
 
 @media (max-width: 900px) {
