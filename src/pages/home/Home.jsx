@@ -11,7 +11,7 @@ import {
 } from '@mui/material';
 import {
   CloudUpload, Clear, Link as LinkIcon, ExpandMore, ExpandLess,
-  CheckCircle, Cancel, Warning,
+  CheckCircle, Cancel,
 } from '@mui/icons-material';
 import help_outline from '../../assets/help_outline.svg';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
@@ -33,32 +33,26 @@ function fitRowColor(score) {
   return '#f0fdf4';
 }
 
-function countKeyword(text, keyword) {
-  if (!text || !keyword) return 0;
-  const escaped = keyword.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return (text.toLowerCase().match(new RegExp(escaped, 'g')) || []).length;
-}
-
-function applyChangeLog(optimizedResume, changeLog, accepted) {
-  const merged = JSON.parse(JSON.stringify(optimizedResume));
+function applyChangeLog(parsedResume, changeLog, accepted) {
+  const merged = JSON.parse(JSON.stringify(parsedResume));
   (changeLog || []).forEach((entry, i) => {
-    if (accepted[i] === false) {
+    if (accepted[i] !== false) {
       if (entry.section === 'summary') {
-        merged.summary = entry.original;
+        merged.summary = entry.rewritten;
       } else if (entry.section === 'experience') {
         for (const exp of merged.experience || []) {
-          const idx = (exp.bullets || []).indexOf(entry.rewritten);
-          if (idx !== -1) { exp.bullets[idx] = entry.original; break; }
+          const idx = (exp.bullets || []).indexOf(entry.original);
+          if (idx !== -1) { exp.bullets[idx] = entry.rewritten; break; }
         }
       } else if (entry.section === 'projects') {
         for (const proj of merged.projects || []) {
-          const idx = (proj.bullets || []).indexOf(entry.rewritten);
-          if (idx !== -1) { proj.bullets[idx] = entry.original; break; }
+          const idx = (proj.bullets || []).indexOf(entry.original);
+          if (idx !== -1) { proj.bullets[idx] = entry.rewritten; break; }
         }
       } else if (entry.section === 'skills' && entry.original === '') {
-        for (const cat of Object.keys(merged.skills || {})) {
-          const idx = (merged.skills[cat] || []).indexOf(entry.rewritten);
-          if (idx !== -1) { merged.skills[cat].splice(idx, 1); break; }
+        const cat = entry.field;
+        if (merged.skills?.[cat] && !merged.skills[cat].includes(entry.rewritten)) {
+          merged.skills[cat].push(entry.rewritten);
         }
       }
     }
@@ -117,7 +111,7 @@ const PHASES = [
   'Finalizing results...',
 ];
 
-function SkillsTable({ skills, fileContent }) {
+function SkillsTable({ skills }) {
   const [expandedCourse, setExpandedCourse] = useState(null);
 
   return (
@@ -127,7 +121,6 @@ function SkillsTable({ skills, fileContent }) {
           <TableCell><strong>Skill</strong></TableCell>
           <TableCell><strong>Importance</strong></TableCell>
           <TableCell><strong>Fit</strong></TableCell>
-          <TableCell><strong>ATS Count</strong></TableCell>
           <TableCell><strong>Gap Keywords</strong></TableCell>
           <TableCell><strong>Recommended Actions</strong></TableCell>
           <TableCell><strong>Courses</strong></TableCell>
@@ -148,7 +141,6 @@ function SkillsTable({ skills, fileContent }) {
               <TableCell>
                 <Chip label={`${s.fit_score} — ${fitLabel(s.fit_score)}`} size="small" />
               </TableCell>
-              <TableCell>{countKeyword(fileContent, s.skill)}x</TableCell>
               <TableCell style={{ fontSize: 12 }}>{s.gap_keywords || '—'}</TableCell>
               <TableCell style={{ fontSize: 12 }}>{s.recommended_actions || '—'}</TableCell>
               <TableCell>
@@ -168,7 +160,7 @@ function SkillsTable({ skills, fileContent }) {
               if (!course || expandedCourse !== `${i}-${sc.course_code}`) return null;
               return (
                 <TableRow key={`detail-${sc.course_code}`} style={{ backgroundColor: '#f8fafc' }}>
-                  <TableCell colSpan={7} style={{ padding: '12px 16px' }}>
+                  <TableCell colSpan={6} style={{ padding: '12px 16px' }}>
                     <strong>{course.c} — {course.t}</strong> ({course.q})<br />
                     <em style={{ fontSize: 13, color: '#555' }}>{course.s}</em><br />
                     <span style={{ fontSize: 12, color: '#666' }}>
@@ -185,9 +177,8 @@ function SkillsTable({ skills, fileContent }) {
   );
 }
 
-function ChangeLogPanel({ changeLog, accepted, onToggle, flaggedBullets, readOnly }) {
+function ChangeLogPanel({ changeLog, accepted, onToggle, readOnly }) {
   const [expanded, setExpanded] = useState({});
-  const flaggedIndices = new Set((flaggedBullets || []).map((f) => f.index));
 
   return (
     <div>
@@ -199,11 +190,6 @@ function ChangeLogPanel({ changeLog, accepted, onToggle, flaggedBullets, readOnl
           >
             <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>
               [{entry.section}] {entry.field}
-              {flaggedIndices.has(i) && (
-                <Tooltip title="Contains numbers not in original — please verify">
-                  <Warning style={{ color: '#f59e0b', marginLeft: 6, fontSize: 16, verticalAlign: 'middle' }} />
-                </Tooltip>
-              )}
             </span>
             {!readOnly && (
               <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
@@ -253,7 +239,7 @@ function ChangeLogPanel({ changeLog, accepted, onToggle, flaggedBullets, readOnl
 function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, readOnly }) {
   const { overall_fit_score, score_breakdown, gap_analysis, change_log, flags } = analysis;
   const skills = gap_analysis?.skills || [];
-  const hasFlags = flags?.truncated_resume || flags?.sparse_jd || (flags?.flagged_bullets?.length > 0);
+  const hasFlags = flags?.truncated_resume || flags?.sparse_jd;
 
   return (
     <div>
@@ -281,7 +267,6 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
           <Alert severity="warning" style={{ marginBottom: 8 }}>
             {flags.truncated_resume && <div>Resume was very long; only the first 15,000 characters were analyzed.</div>}
             {flags.sparse_jd && <div>This job description appears sparse. The analysis may be lower quality.</div>}
-            {flags.flagged_bullets?.length > 0 && <div>Some rewritten bullets contain numbers not in the original. Review them before using.</div>}
           </Alert>
         </div>
       )}
@@ -297,7 +282,7 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
           </p>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <SkillsTable skills={skills} fileContent={fileContent} />
+          <SkillsTable skills={skills} />
         </div>
       </div>
 
@@ -312,7 +297,6 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
             changeLog={change_log}
             accepted={changeLogAccepted}
             onToggle={onToggle}
-            flaggedBullets={flags?.flagged_bullets}
             readOnly={readOnly}
           />
         </div>
@@ -331,8 +315,10 @@ function App() {
   const [fileType, setFileType] = useState(null);
   const [filePreview, setFilePreview] = useState('');
   const [fileContent, setFileContent] = useState('');
+  const [fileContentEdited, setFileContentEdited] = useState(false);
   const [activeResumeId, setActiveResumeId] = useState(null);
   const [activeResumeFileName, setActiveResumeFileName] = useState(null);
+  const [resumeConflictData, setResumeConflictData] = useState(null);
 
   // Job description states
   const [jobURL, setJobURL] = useState('');
@@ -432,6 +418,7 @@ function App() {
     try {
       const res = await axios.post(`${BACKEND_URL}/file/extractText`, formData);
       setFileContent(res.data.text);
+      setFileContentEdited(false);
     } catch (err) {
       console.error('Error extracting text:', err);
     }
@@ -472,7 +459,7 @@ function App() {
       const token = await getToken();
       const { data } = await axios.post(
         `${BACKEND_URL}/analyze`,
-        { resumeText: fileContent, jdText: jobDescription, resumeId: activeResumeId || null },
+        { resumeText: fileContent, jdText: jobDescription, resumeId: activeResumeId || null, resumeTextEdited: fileContentEdited },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setAnalysisResult(data);
@@ -480,6 +467,9 @@ function App() {
       (data.change_log || []).forEach((_, i) => { accepted[i] = true; });
       setChangeLogAccepted(accepted);
       setResultsTab(0);
+      if (data.flags?.resume_conflict && activeResumeId) {
+        setResumeConflictData({ parsedResume: data.parsed_resume, resumeId: activeResumeId });
+      }
     } catch (err) {
       alert(err.response?.data?.error || 'Analysis failed. Please try again.');
     } finally {
@@ -532,13 +522,12 @@ function App() {
       ['Score Breakdown', displayedAnalysis.score_breakdown || ''],
       [],
     ];
-    const header = ['Skill', 'Importance', 'Fit Score', 'Fit Label', 'ATS Count', 'Gap Keywords', 'Recommended Actions', 'Courses'];
+    const header = ['Skill', 'Importance', 'Fit Score', 'Fit Label', 'Gap Keywords', 'Recommended Actions', 'Courses'];
     const rows = skills.map((s) => [
       s.skill,
       s.importance === 0 ? 'Required' : 'Preferred',
       s.fit_score,
       fitLabel(s.fit_score),
-      countKeyword(fileContent, s.skill),
       s.gap_keywords || '',
       s.recommended_actions || '',
       (s.suggested_courses || []).map((c) => c.course_code).join(', '),
@@ -559,7 +548,7 @@ function App() {
   const handleOpenInEditor = () => {
     if (!displayedAnalysis) return;
     const merged = applyChangeLog(
-      displayedAnalysis.optimized_resume,
+      displayedAnalysis.parsed_resume,
       displayedAnalysis.change_log,
       isReadOnly ? {} : changeLogAccepted
     );
@@ -571,7 +560,7 @@ function App() {
     setSavingResume(true);
     try {
       const merged = applyChangeLog(
-        displayedAnalysis.optimized_resume,
+        displayedAnalysis.parsed_resume,
         displayedAnalysis.change_log,
         isReadOnly ? {} : changeLogAccepted
       );
@@ -585,6 +574,7 @@ function App() {
       });
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('resumeText', fileContent);
       if (saveAsVersion && activeResumeId) {
         formData.append('parentResumeId', String(activeResumeId));
       }
@@ -602,7 +592,8 @@ function App() {
     }
   };
 
-  const canOptimize = () => fileContent !== '' && jobDescription !== '' && !jobLoading;
+  const JD_CHAR_LIMIT = 20000;
+  const canOptimize = () => fileContent !== '' && jobDescription !== '' && !jobLoading && jobDescription.length <= JD_CHAR_LIMIT;
 
   useEffect(() => {
     return () => { if (filePreview && fileType === 'pdf') URL.revokeObjectURL(filePreview); };
@@ -670,7 +661,7 @@ function App() {
             <textarea
               className="text-input"
               value={fileContent}
-              onChange={(e) => setFileContent(e.target.value)}
+              onChange={(e) => { setFileContent(e.target.value); setFileContentEdited(true); }}
               placeholder="Extracted resume text will appear here..."
               rows={12}
             />
@@ -718,6 +709,11 @@ function App() {
             rows={10}
             disabled={jobLoading}
           />
+          {jobDescription.length > JD_CHAR_LIMIT && (
+            <div style={{ color: '#b91c1c', fontSize: 13, marginTop: 4 }}>
+              Job description is too long ({jobDescription.length.toLocaleString()} / {JD_CHAR_LIMIT.toLocaleString()} characters). Please trim it before running analysis.
+            </div>
+          )}
         </div>
       </div>
 
@@ -732,7 +728,6 @@ function App() {
         >
           {isOptimizing ? optimizePhase : 'Analyze Resume'}
         </Button>
-        {isOptimizing && <CircularProgress size={20} style={{ marginLeft: 12 }} />}
       </div>
 
       {/* Results area */}
@@ -878,6 +873,41 @@ function App() {
           <Button onClick={() => setSaveModalOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveResume} disabled={savingResume}>
             {savingResume ? <CircularProgress size={18} /> : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Resume conflict dialog */}
+      <Dialog open={!!resumeConflictData} onClose={() => setResumeConflictData(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Resume Text Has Changed</DialogTitle>
+        <DialogContent>
+          <p style={{ margin: 0, fontSize: 14, color: '#374151' }}>
+            Your edited resume text is significantly different from the saved version. What would you like to do?
+          </p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResumeConflictData(null)}>Dismiss</Button>
+          <Button onClick={() => setSaveModalOpen(true) || setResumeConflictData(null)}>
+            Save as New Resume
+          </Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              try {
+                const token = await getToken();
+                await axios.patch(
+                  `${BACKEND_URL}/resumes/${resumeConflictData.resumeId}`,
+                  { parsed_resume: resumeConflictData.parsedResume, resume_text: fileContent },
+                  { headers: { Authorization: `Bearer ${token}` } }
+                );
+                setResumeConflictData(null);
+                alert('Saved resume updated successfully.');
+              } catch {
+                alert('Failed to update saved resume. Please try again.');
+              }
+            }}
+          >
+            Update Saved Resume
           </Button>
         </DialogActions>
       </Dialog>

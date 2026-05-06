@@ -12,7 +12,6 @@ import './ResumeEditor.css';
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 const PAPER_WIDTH = 816;
 const PAPER_HEIGHT = 1056;
-const PANEL_WIDTH = 650;
 const newId = () => crypto.randomUUID();
 
 const DEFAULT_SECTION_ORDER = ['contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honorsAwards'];
@@ -210,11 +209,36 @@ export default function ResumeEditor() {
   const { getToken } = useContext(UserContext);
   const previewRef = useRef(null);
   const contentWrapRef = useRef(null);
+  const previewPanelRef = useRef(null);
+  const [panelWidth, setPanelWidth] = useState(650);
+
+  const [splitPct, setSplitPct] = useState(35);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef(null);
+
+  const handleDividerMouseDown = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+    const container = containerRef.current;
+    const onMouseMove = (ev) => {
+      const rect = container.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setSplitPct(Math.min(Math.max(pct, 20), 70));
+    };
+    const onMouseUp = () => {
+      setIsDragging(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
   const [format, setFormat] = useState({ margins: 40, lineSpacing: 1.3 });
+  const [bulletStyle, setBulletStyle] = useState('dash');
   const [loadingResume, setLoadingResume] = useState(false);
   const [fitToOnePage, setFitToOnePage] = useState(true);
   const [fitFontScale, setFitFontScale] = useState(1);
@@ -256,15 +280,24 @@ export default function ResumeEditor() {
     return () => ro.disconnect();
   }, [loadingResume]);
 
+  useEffect(() => {
+    if (!previewPanelRef.current) return;
+    const ro = new ResizeObserver(() => {
+      if (previewPanelRef.current) setPanelWidth(previewPanelRef.current.clientWidth);
+    });
+    ro.observe(previewPanelRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   useLayoutEffect(() => {
     if (!contentWrapRef.current || !fitToOnePage) { setFitFontScale(1); return; }
     const el = contentWrapRef.current;
     el.style.zoom = '';
     const h = el.scrollHeight;
-    setFitFontScale(Math.max(0.5, Math.min(1, PAPER_HEIGHT / h)));
+    setFitFontScale(Math.max(0.5, Math.min(1.5, PAPER_HEIGHT / h)));
   }, [fitToOnePage, resume, format]);
 
-  const panelScale = PANEL_WIDTH / PAPER_WIDTH;
+  const panelScale = panelWidth / PAPER_WIDTH;
   const numPages = fitToOnePage ? 1 : Math.ceil(contentHeight / PAPER_HEIGHT);
   const outerHeight = numPages * PAPER_HEIGHT * panelScale;
 
@@ -327,9 +360,8 @@ export default function ResumeEditor() {
     const imgData = canvas.toDataURL('image/png');
 
     if (fitToOnePage) {
-      const scale = Math.min(1, PAPER_HEIGHT / contentH);
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PAPER_WIDTH, PAPER_HEIGHT] });
-      pdf.addImage(imgData, 'PNG', 0, 0, PAPER_WIDTH, contentH * scale);
+      pdf.addImage(imgData, 'PNG', 0, 0, PAPER_WIDTH, PAPER_HEIGHT);
       return pdf.output('blob');
     }
 
@@ -616,7 +648,7 @@ export default function ResumeEditor() {
               <span className="rp-entry-dates">{[exp.location, [exp.startDate, exp.endDate].filter(Boolean).join(' – ')].filter(Boolean).join(' | ')}</span>
             </div>
             {exp.role && <div className="rp-entry-sub">{exp.role}</div>}
-            {exp.bullets.length > 0 && <ul className="rp-bullets">{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
+            {exp.bullets.length > 0 && <ul className={`rp-bullets${bulletStyle === 'dot' ? ' dot' : ''}`}>{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
           </div>
         ))}
       </div>
@@ -631,7 +663,7 @@ export default function ResumeEditor() {
               <span className="rp-entry-main">{proj.name}{proj.tech ? <span className="rp-entry-sub"> | {proj.tech}</span> : ''}</span>
               <span className="rp-entry-dates">{[proj.startDate, proj.endDate].filter(Boolean).join(' – ')}</span>
             </div>
-            {proj.bullets.length > 0 && <ul className="rp-bullets">{proj.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
+            {proj.bullets.length > 0 && <ul className={`rp-bullets${bulletStyle === 'dot' ? ' dot' : ''}`}>{proj.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
           </div>
         ))}
       </div>
@@ -702,9 +734,9 @@ export default function ResumeEditor() {
   }
 
   return (
-    <div className="editor-page">
+    <div className="editor-page" ref={containerRef}>
       {/* LEFT: FORM */}
-      <div className="editor-form">
+      <div className="editor-form" style={{ width: `${splitPct}%` }}>
         {sectionOrder.map((key, idx) => renderFormSection(key, idx))}
 
         <button className="add-section-btn" style={{ marginBottom: 8 }} onClick={addCustomSection}>
@@ -724,12 +756,18 @@ export default function ResumeEditor() {
         </div>
       </div>
 
+      {/* DRAG DIVIDER */}
+      <div
+        className={`editor-divider${isDragging ? ' dragging' : ''}`}
+        onMouseDown={handleDividerMouseDown}
+      />
+
       {/* RIGHT: PREVIEW */}
-      <div className="editor-preview-panel">
+      <div className="editor-preview-panel" ref={previewPanelRef}>
         <div className="preview-toolbar-row">
           <span className="preview-label" style={{ marginBottom: 0 }}>Live Preview</span>
           <button className="fit-page-btn" onClick={() => setFitToOnePage((v) => !v)}>
-            {fitToOnePage ? 'Normal View' : 'Fit to 1 Page'}
+            {fitToOnePage ? 'Default' : 'Fit to Page'}
           </button>
         </div>
 
@@ -746,9 +784,18 @@ export default function ResumeEditor() {
             <input type="range" min={1.2} max={2.0} step={0.1} value={format.lineSpacing} onChange={(e) => setFormat((f) => ({ ...f, lineSpacing: Number(e.target.value) }))} className="format-slider" />
             <span className="format-hint">Loose</span>
           </div>
+          <div className="format-row">
+            
+            <button
+              className="bullet-style-toggle"
+              onClick={() => setBulletStyle((s) => s === 'dash' ? 'dot' : 'dash')}
+            >
+              {bulletStyle === 'dash' ? '• Bullet' : '– Dash'}
+            </button>
+          </div>
         </div>
 
-        <div className="rp-page-outer" style={{ height: outerHeight }}>
+        <div className="rp-page-outer" style={{ height: outerHeight, width: panelWidth }}>
           {!fitToOnePage && Array.from({ length: numPages - 1 }, (_, i) => (
             <div key={i} className="rp-page-break" style={{ top: (i + 1) * PAPER_HEIGHT * panelScale }} />
           ))}
