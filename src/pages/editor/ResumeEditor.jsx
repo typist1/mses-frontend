@@ -3,8 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, IconButton, CircularProgress } from '@mui/material';
 import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { getPdfBlob } from '@/utils/buildPdf';
 import { buildDocx, Packer } from '@/utils/buildDocx';
 import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
@@ -244,6 +243,8 @@ export default function ResumeEditor() {
   const [fitFontScale, setFitFontScale] = useState(1);
   const [contentHeight, setContentHeight] = useState(PAPER_HEIGHT);
 
+  const hasResume = location.state?.resume || location.state?.resumeId;
+
   const [resume, setResume] = useState(location.state?.resume || DEMO_RESUME);
   const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
   const [collapsed, setCollapsed] = useState(() =>
@@ -251,6 +252,7 @@ export default function ResumeEditor() {
   );
 
   useEffect(() => {
+    if (!hasResume) { navigate('/resumes', { replace: true }); return; }
     const resumeId = location.state?.resumeId;
     if (!resumeId || location.state?.resume) return;
     const fetchAndParse = async () => {
@@ -343,39 +345,8 @@ export default function ResumeEditor() {
 
   // ── PDF generation ─────────────────────────────────────────────────
   const generatePdfBlob = async () => {
-    const el = previewRef.current;
-    const clone = el.cloneNode(true);
-    const cloneInner = clone.firstElementChild;
-    clone.style.cssText = `position:absolute;top:-999999px;left:0;width:${PAPER_WIDTH}px;transform:none;background:#fff;`;
-    if (cloneInner) cloneInner.style.zoom = '';
-    document.body.appendChild(clone);
-    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-    const canvas = await html2canvas(clone, {
-      scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', width: PAPER_WIDTH,
-    });
-    document.body.removeChild(clone);
-
-    const contentH = canvas.height / 2;
-    const imgData = canvas.toDataURL('image/png');
-
-    if (fitToOnePage) {
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PAPER_WIDTH, PAPER_HEIGHT] });
-      pdf.addImage(imgData, 'PNG', 0, 0, PAPER_WIDTH, PAPER_HEIGHT);
-      return pdf.output('blob');
-    }
-
-    // Multi-page: tile across letter-size pages
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PAPER_WIDTH, PAPER_HEIGHT] });
-    const pdfW = pdf.internal.pageSize.getWidth();
-    const pdfH = pdf.internal.pageSize.getHeight();
-    let y = 0;
-    while (y < contentH) {
-      if (y > 0) pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, -y, pdfW, contentH);
-      y += pdfH;
-    }
-    return pdf.output('blob');
+    const resumeWithOrder = { ...resume, sectionOrder };
+    return getPdfBlob(resumeWithOrder, fitToOnePage ? fitFontScale : 1);
   };
 
   const handleExportPdf = async () => {
@@ -400,7 +371,7 @@ export default function ResumeEditor() {
     setExportingDocx(true);
     try {
       const resumeWithOrder = { ...resume, sectionOrder };
-      const doc = buildDocx(resumeWithOrder, fitToOnePage ? fitFontScale : 1);
+      const doc = buildDocx(resumeWithOrder, fitToOnePage ? Math.min(fitFontScale, 1.05) : 1);
       const blob = await Packer.toBlob(doc);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
