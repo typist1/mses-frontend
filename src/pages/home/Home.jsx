@@ -315,10 +315,9 @@ function App() {
   const [fileType, setFileType] = useState(null);
   const [filePreview, setFilePreview] = useState('');
   const [fileContent, setFileContent] = useState('');
-  const [fileContentEdited, setFileContentEdited] = useState(false);
+  const [inputMode, setInputMode] = useState(null); // null | 'upload' | 'paste'
   const [activeResumeId, setActiveResumeId] = useState(null);
   const [activeResumeFileName, setActiveResumeFileName] = useState(null);
-  const [resumeConflictData, setResumeConflictData] = useState(null);
 
   // Job description states
   const [jobURL, setJobURL] = useState('');
@@ -352,6 +351,7 @@ function App() {
     setFileUpload(null);
     setFilePreview('');
     setFileContent('');
+    setInputMode(null);
     setJobURL('');
     setJobDescription('');
     setJobLoading(false);
@@ -383,6 +383,8 @@ function App() {
     const file = e.target.files?.[0];
     if (!file) return;
     await processFile(file);
+    setInputMode('upload');
+    setActiveResumeId(null); // manual upload is not the saved resume; skip cache
   };
 
   useEffect(() => {
@@ -405,6 +407,7 @@ function App() {
           ? 'application/pdf'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
         await processFile(new File([blobRes.data], active.file_name, { type: mimeType }));
+        setInputMode('upload');
       } catch (err) {
         console.error('Error auto-populating active resume:', err);
       }
@@ -418,7 +421,6 @@ function App() {
     try {
       const res = await axios.post(`${BACKEND_URL}/file/extractText`, formData);
       setFileContent(res.data.text);
-      setFileContentEdited(false);
     } catch (err) {
       console.error('Error extracting text:', err);
     }
@@ -459,7 +461,7 @@ function App() {
       const token = await getToken();
       const { data } = await axios.post(
         `${BACKEND_URL}/analyze`,
-        { resumeText: fileContent, jdText: jobDescription, resumeId: activeResumeId || null, resumeTextEdited: fileContentEdited },
+        { resumeText: fileContent, jdText: jobDescription, resumeId: activeResumeId || null },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setAnalysisResult(data);
@@ -467,9 +469,6 @@ function App() {
       (data.change_log || []).forEach((_, i) => { accepted[i] = true; });
       setChangeLogAccepted(accepted);
       setResultsTab(0);
-      if (data.flags?.resume_conflict && activeResumeId) {
-        setResumeConflictData({ parsedResume: data.parsed_resume, resumeId: activeResumeId });
-      }
     } catch (err) {
       alert(err.response?.data?.error || 'Analysis failed. Please try again.');
     } finally {
@@ -601,70 +600,61 @@ function App() {
 
   return (
     <Container maxWidth="lg" className="main-container">
-      {!fileUpload && (
+      {!fileUpload && !fileContent && (
         <div className="hero">
           <h1>Optimize Your Resume for Any Job</h1>
           <p>Upload your resume and compare it against job descriptions to see how well you match</p>
         </div>
       )}
 
-      {(fileUpload || jobDescription) && (
+      {(fileUpload || fileContent || jobDescription) && (
         <div className="clear-section">
           <Button startIcon={<Clear />} onClick={handleClear} className="btn-clear">Clear All</Button>
         </div>
       )}
 
-      {/* Upload */}
+      {/* Resume input: upload or paste (mutually exclusive) */}
       <div className="section">
         <div className="section-header">
-          <h2>1. Upload Your Resume</h2>
-          <p>PDF or DOCX files supported</p>
+          <h2>1. Add Your Resume</h2>
+          <p>Upload a file or paste your resume text below</p>
         </div>
         <div className="section-body">
-          <Button variant="contained" component="label" startIcon={<CloudUpload />} className="btn-upload">
-            {fileUpload ? fileUpload.name : 'Choose File'}
-            <input ref={fileInputRef} type="file" hidden accept=".pdf,.docx" onChange={handleFileUpload} />
-          </Button>
+          {/* Upload option */}
+          <div style={{ opacity: inputMode === 'paste' ? 0.4 : 1, pointerEvents: inputMode === 'paste' ? 'none' : 'auto' }}>
+            <Button variant="contained" component="label" startIcon={<CloudUpload />} className="btn-upload">
+              {fileUpload ? fileUpload.name : 'Choose File'}
+              <input ref={fileInputRef} type="file" hidden accept=".pdf,.docx" onChange={handleFileUpload} />
+            </Button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0', gap: 12 }}>
+            <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+            <span style={{ color: '#9ca3af', fontSize: 14 }}>or</span>
+            <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+          </div>
+
+          {/* Paste option */}
+          <div style={{ opacity: inputMode === 'upload' ? 0.4 : 1, pointerEvents: inputMode === 'upload' ? 'none' : 'auto' }}>
+            <textarea
+              className="text-input"
+              value={inputMode === 'upload' ? '' : fileContent}
+              onChange={(e) => { setFileContent(e.target.value); setInputMode('paste'); }}
+              placeholder="Paste your resume text here..."
+              rows={12}
+              disabled={inputMode === 'upload'}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Preview */}
-      {fileUpload && (
+      {/* File preview (upload mode only) */}
+      {inputMode === 'upload' && fileUpload && (
         <div className="section">
           <div className="section-header"><h2>File Preview</h2></div>
           <div className="preview-container">
             {fileType === 'pdf' && <iframe src={filePreview} className="pdf-preview" title="Resume preview" />}
             {fileType === 'docx' && <div className="docx-preview" dangerouslySetInnerHTML={{ __html: filePreview }} />}
-          </div>
-        </div>
-      )}
-
-      {/* Extracted text */}
-      {fileContent && (
-        <div className="section">
-          <div className="section-header">
-            <div className="header-with-tooltip">
-              <h2>Extracted Resume Text</h2>
-              <Tooltip
-                title="Resume format should be as simple as possible. Use standard fonts, clear section headers, and avoid complex formatting (e.g. columns, tables, graphics)."
-                arrow placement="right"
-                slotProps={{ tooltip: { sx: { fontSize: '16px' } } }}
-              >
-                <IconButton className="tooltip-icon">
-                  <img src={help_outline} placeholder="help icon" />
-                </IconButton>
-              </Tooltip>
-            </div>
-            <p>Review and edit the extracted text to ensure accuracy</p>
-          </div>
-          <div className="section-body">
-            <textarea
-              className="text-input"
-              value={fileContent}
-              onChange={(e) => { setFileContent(e.target.value); setFileContentEdited(true); }}
-              placeholder="Extracted resume text will appear here..."
-              rows={12}
-            />
           </div>
         </div>
       )}
@@ -877,40 +867,6 @@ function App() {
         </DialogActions>
       </Dialog>
 
-      {/* Resume conflict dialog */}
-      <Dialog open={!!resumeConflictData} onClose={() => setResumeConflictData(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>Resume Text Has Changed</DialogTitle>
-        <DialogContent>
-          <p style={{ margin: 0, fontSize: 14, color: '#374151' }}>
-            Your edited resume text is significantly different from the saved version. What would you like to do?
-          </p>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setResumeConflictData(null)}>Dismiss</Button>
-          <Button onClick={() => setSaveModalOpen(true) || setResumeConflictData(null)}>
-            Save as New Resume
-          </Button>
-          <Button
-            variant="contained"
-            onClick={async () => {
-              try {
-                const token = await getToken();
-                await axios.patch(
-                  `${BACKEND_URL}/resumes/${resumeConflictData.resumeId}`,
-                  { parsed_resume: resumeConflictData.parsedResume, resume_text: fileContent },
-                  { headers: { Authorization: `Bearer ${token}` } }
-                );
-                setResumeConflictData(null);
-                alert('Saved resume updated successfully.');
-              } catch {
-                alert('Failed to update saved resume. Please try again.');
-              }
-            }}
-          >
-            Update Saved Resume
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Container>
   );
 }
