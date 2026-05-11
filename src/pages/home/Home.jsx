@@ -16,6 +16,7 @@ import {
 import help_outline from '../../assets/help_outline.svg';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
 import { buildDocx, Packer } from '../../utils/buildDocx.js';
+import { getPdfBlob } from '../../utils/buildPdf.js';
 import '../../App.css';
 import { UserContext } from '@/common/contexts/UserContext';
 
@@ -336,6 +337,9 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewingHistoryItem, setViewingHistoryItem] = useState(null);
 
+  // History action loading (id of the row being loaded)
+  const [historyActionLoading, setHistoryActionLoading] = useState(null);
+
   // Save modal
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveAsVersion, setSaveAsVersion] = useState(false);
@@ -546,12 +550,87 @@ function App() {
 
   const handleOpenInEditor = () => {
     if (!displayedAnalysis) return;
+    // For history: use the stored optimized resume (from when user saved) if available
+    if (isReadOnly && displayedAnalysis.optimized_resume) {
+      navigate('/editor', { state: { resume: displayedAnalysis.optimized_resume } });
+      return;
+    }
     const merged = applyChangeLog(
       displayedAnalysis.parsed_resume,
       displayedAnalysis.change_log,
       isReadOnly ? {} : changeLogAccepted
     );
     navigate('/editor', { state: { resume: toEditorSchema(merged) } });
+  };
+
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const buildOptimizedEditorResume = (analysis, accepted) => {
+    const merged = applyChangeLog(analysis.parsed_resume, analysis.change_log, accepted);
+    return toEditorSchema(merged);
+  };
+
+  const getDisplayedEditorResume = () => {
+    if (isReadOnly && displayedAnalysis.optimized_resume) return displayedAnalysis.optimized_resume;
+    return buildOptimizedEditorResume(displayedAnalysis, isReadOnly ? {} : changeLogAccepted);
+  };
+
+  const handleExportPdf = async () => {
+    if (!displayedAnalysis) return;
+    try {
+      const blob = await getPdfBlob(getDisplayedEditorResume());
+      downloadBlob(blob, `${displayedAnalysis.job_title || 'resume'}-optimized.pdf`);
+    } catch {
+      alert('Failed to export PDF. Please try again.');
+    }
+  };
+
+  const handleExportDocx = async () => {
+    if (!displayedAnalysis) return;
+    try {
+      const doc = buildDocx(getDisplayedEditorResume());
+      const blob = await Packer.toBlob(doc);
+      downloadBlob(blob, `${displayedAnalysis.job_title || 'resume'}-optimized.docx`);
+    } catch {
+      alert('Failed to export DOCX. Please try again.');
+    }
+  };
+
+  const handleHistoryAction = async (id, action) => {
+    setHistoryActionLoading(`${String(id)}-${action}`);
+    try {
+      const token = await getToken();
+      const { data } = await axios.get(`${BACKEND_URL}/analyze/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!data.parsed_resume && !data.optimized_resume) {
+        alert('No resume data available for this analysis.');
+        return;
+      }
+      // Use stored optimized resume (saved by user) if available, else apply all changes
+      const editorResume = data.optimized_resume || buildOptimizedEditorResume(data, {});
+      if (action === 'editor') {
+        navigate('/editor', { state: { resume: editorResume } });
+      } else if (action === 'pdf') {
+        const blob = await getPdfBlob(editorResume);
+        downloadBlob(blob, `${data.job_title || 'resume'}-optimized.pdf`);
+      } else if (action === 'docx') {
+        const doc = buildDocx(editorResume);
+        const blob = await Packer.toBlob(doc);
+        downloadBlob(blob, `${data.job_title || 'resume'}-optimized.docx`);
+      }
+    } catch {
+      alert('Failed to load analysis. Please try again.');
+    } finally {
+      setHistoryActionLoading(null);
+    }
   };
 
   const handleSaveResume = async () => {
@@ -581,6 +660,21 @@ function App() {
       await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
       });
+
+      // Persist the accepted optimized resume to the analysis so history can load it exactly
+      if (analysisResult?.id) {
+        try {
+          await axios.patch(
+            `${BACKEND_URL}/analyze/${analysisResult.id}/optimized`,
+            { optimized_resume: editorResume },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          setAnalysisResult((prev) => prev ? { ...prev, optimized_resume: editorResume } : prev);
+        } catch {
+          console.error('Failed to store optimized resume in analysis');
+        }
+      }
+
       setSaveModalOpen(false);
       setSaveResumeFileName('');
       alert('Resume saved successfully!');
@@ -770,7 +864,9 @@ function App() {
                   />
                   <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
-                    <Button variant="outlined" onClick={handleOpenInEditor}>Open in Editor</Button>
+                    <Button variant="outlined" onClick={handleExportPdf} disabled={!displayedAnalysis?.parsed_resume && !displayedAnalysis?.optimized_resume}>Export PDF</Button>
+                    <Button variant="outlined" onClick={handleExportDocx} disabled={!displayedAnalysis?.parsed_resume && !displayedAnalysis?.optimized_resume}>Export DOCX</Button>
+                    <Button variant="outlined" onClick={handleOpenInEditor} disabled={!displayedAnalysis?.parsed_resume && !displayedAnalysis?.optimized_resume}>Open in Editor</Button>
                     {!isReadOnly && (
                       <Button variant="contained" onClick={() => setSaveModalOpen(true)}>Save Optimized Resume</Button>
                     )}
@@ -796,29 +892,34 @@ function App() {
                       <TableCell><strong>Company</strong></TableCell>
                       <TableCell><strong>Fit Score</strong></TableCell>
                       <TableCell><strong>Date</strong></TableCell>
-                      <TableCell></TableCell>
+                      <TableCell><strong>Actions</strong></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {historyList.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.job_title || '—'}</TableCell>
-                        <TableCell>{item.company || '—'}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={`${item.overall_fit_score}%`}
-                            size="small"
-                            color={item.overall_fit_score >= 70 ? 'success' : 'warning'}
-                          />
-                        </TableCell>
-                        <TableCell>{new Date(item.created_at).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          <Button size="small" variant="outlined" onClick={() => handleViewHistoryItem(item.id)}>
-                            View
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {historyList.map((item) => {
+                      const isRowLoading = historyActionLoading?.startsWith(String(item.id));
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.job_title || '—'}</TableCell>
+                          <TableCell>{item.company || '—'}</TableCell>
+                          <TableCell>
+                            <Chip
+                              label={`${item.overall_fit_score}%`}
+                              size="small"
+                              color={item.overall_fit_score >= 70 ? 'success' : 'warning'}
+                            />
+                          </TableCell>
+                          <TableCell>{new Date(item.created_at).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              <Button size="small" variant="outlined" onClick={() => handleViewHistoryItem(item.id)}>
+                                View
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
