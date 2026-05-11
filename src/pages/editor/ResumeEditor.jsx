@@ -1,9 +1,8 @@
 import React, { useState, useRef, useContext, useEffect, useLayoutEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams, Navigate } from 'react-router-dom';
 import { Button, IconButton, CircularProgress } from '@mui/material';
 import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
-import { getPdfBlob } from '@/utils/buildPdf';
 import { buildDocx, Packer } from '@/utils/buildDocx';
 import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
@@ -27,12 +26,12 @@ const SECTION_TITLES = {
 
 const DEMO_RESUME = {
   contact: {
-    name: 'Alex Johnson',
-    email: 'alex.johnson@email.com',
-    phone: '(555) 123-4567',
-    linkedin: 'linkedin.com/in/alexjohnson',
-    location: 'Chicago, IL',
-    github: 'github.com/alexjohnson',
+    name: '',
+    email: '',
+    phone: '',
+    linkedin: '',
+    location: '',
+    github: '',
   },
   contactExtra: [],
   summary:
@@ -159,6 +158,43 @@ function FormSection({ title, collapsed, onToggle, onMoveUp, onMoveDown, canMove
   );
 }
 
+function fromEditorSchema(r) {
+  const skillMap = { technical: [], tools: [], languages: [], soft: [] };
+  for (const sk of (r.skills || [])) {
+    const cat = (sk.category || '').toLowerCase();
+    const items = sk.items ? sk.items.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    if (cat === 'technical') skillMap.technical.push(...items);
+    else if (cat === 'tools') skillMap.tools.push(...items);
+    else if (cat === 'languages') skillMap.languages.push(...items);
+    else if (cat === 'soft skills') skillMap.soft.push(...items);
+    else skillMap.technical.push(...items);
+  }
+  return {
+    contact: { ...r.contact },
+    summary: r.summary || '',
+    experience: (r.experience || []).map((exp) => ({
+      company: exp.company, title: exp.role, location: exp.location,
+      start: exp.startDate, end: exp.endDate, bullets: exp.bullets || [],
+    })),
+    education: (r.education || []).map((edu) => ({
+      institution: edu.school, degree: edu.degree, field: edu.field,
+      start: edu.startDate, end: edu.endDate, gpa: edu.gpa,
+    })),
+    skills: skillMap,
+    projects: (r.projects || []).map((proj) => ({
+      name: proj.name,
+      tech: proj.tech ? proj.tech.split(',').map((s) => s.trim()).filter(Boolean) : [],
+      bullets: proj.bullets || [],
+    })),
+    certifications: (r.certifications || []).map((cert) => ({
+      name: cert.name, issuer: cert.issuer, date: cert.date,
+    })),
+    honors_awards: (r.honorsAwards || []).map((ha) => ({
+      title: ha.title, issuer: ha.issuer, date: ha.date,
+    })),
+  };
+}
+
 function toEditorSchema(parsed) {
   return {
     contact: {
@@ -205,7 +241,8 @@ function toEditorSchema(parsed) {
 export default function ResumeEditor() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { getToken } = useContext(UserContext);
+  const { resumeId } = useParams();
+  const { getToken, user } = useContext(UserContext);
   const previewRef = useRef(null);
   const contentWrapRef = useRef(null);
   const previewPanelRef = useRef(null);
@@ -233,19 +270,23 @@ export default function ResumeEditor() {
     window.addEventListener('mouseup', onMouseUp);
   };
 
+  const [resumeName, setResumeName] = useState(() => {
+    if (location.state?.fileName) return location.state.fileName.replace(/\.[^/.]+$/, '');
+    return 'My Resume';
+  });
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
   const [format, setFormat] = useState({ margins: 40, lineSpacing: 1.3 });
   const [bulletStyle, setBulletStyle] = useState('dash');
-  const [loadingResume, setLoadingResume] = useState(false);
+  const [loadingResume, setLoadingResume] = useState(!!resumeId);
   const [fitToOnePage, setFitToOnePage] = useState(true);
   const [fitFontScale, setFitFontScale] = useState(1);
   const [contentHeight, setContentHeight] = useState(PAPER_HEIGHT);
 
-  const hasResume = location.state?.resume || location.state?.resumeId;
+  const hasResume = location.state?.resume || resumeId;
 
-  const [resume, setResume] = useState(location.state?.resume || DEMO_RESUME);
+  const [resume, setResume] = useState(resumeId ? null : (location.state?.resume || null));
   const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
   const [collapsed, setCollapsed] = useState(() =>
     Object.fromEntries(DEFAULT_SECTION_ORDER.map((k) => [k, true]))
@@ -253,10 +294,9 @@ export default function ResumeEditor() {
 
   useEffect(() => {
     if (!hasResume) { navigate('/resumes', { replace: true }); return; }
-    const resumeId = location.state?.resumeId;
-    if (!resumeId || location.state?.resume) return;
+    if (!resumeId) return;
+    if (!user) return;
     const fetchAndParse = async () => {
-      setLoadingResume(true);
       try {
         const token = await getToken();
         const { data } = await axios.post(
@@ -264,14 +304,16 @@ export default function ResumeEditor() {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         setResume(toEditorSchema(data.parsed_resume));
+        if (data.file_name) setResumeName(data.file_name.replace(/\.[^/.]+$/, ''));
       } catch (err) {
         console.error('Failed to load resume for editor:', err);
+        navigate('/resumes', { replace: true });
       } finally {
         setLoadingResume(false);
       }
     };
     fetchAndParse();
-  }, []);
+  }, [resumeId, user]);
 
   useEffect(() => {
     if (!contentWrapRef.current) return;
@@ -289,7 +331,7 @@ export default function ResumeEditor() {
     });
     ro.observe(previewPanelRef.current);
     return () => ro.disconnect();
-  }, []);
+  }, [loadingResume]);
 
   useLayoutEffect(() => {
     if (!contentWrapRef.current || !fitToOnePage) { setFitFontScale(1); return; }
@@ -343,17 +385,22 @@ export default function ResumeEditor() {
   };
   const toggleCollapsed = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
-  // ── PDF generation ─────────────────────────────────────────────────
-  const generatePdfBlob = async () => {
-    const resumeWithOrder = { ...resume, sectionOrder };
-    return getPdfBlob(resumeWithOrder, fitToOnePage ? fitFontScale : 1);
-  };
-
   const handleExportPdf = async () => {
     setExporting(true);
     try {
-      const blob = await generatePdfBlob();
-      const url = URL.createObjectURL(blob);
+      const resumeWithOrder = { ...resume, sectionOrder };
+      const doc = buildDocx(resumeWithOrder, fitToOnePage ? Math.min(fitFontScale, 1.05) : 1);
+      const docxBlob = await Packer.toBlob(doc);
+      const formData = new FormData();
+      formData.append('file', new File([docxBlob], 'resume.docx', {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }));
+      const token = await getToken();
+      const response = await axios.post(`${BACKEND_URL}/file/convert-to-pdf`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${resume.contact.name || 'resume'}.pdf`;
@@ -390,15 +437,26 @@ export default function ResumeEditor() {
   const handleSaveToResumes = async () => {
     setSaving(true);
     try {
-      const blob = await generatePdfBlob();
-      const fileName = `${resume.contact.name || 'resume'}-edited.pdf`;
-      const file = new File([blob], fileName, { type: 'application/pdf' });
-      const formData = new FormData();
-      formData.append('file', file);
       const token = await getToken();
-      await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-      });
+      if (resumeId) {
+        await axios.patch(`${BACKEND_URL}/resumes/${resumeId}`, {
+          parsed_resume: fromEditorSchema(resume),
+          file_name: resumeName || 'resume',
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        const resumeWithOrder = { ...resume, sectionOrder };
+        const doc = buildDocx(resumeWithOrder, fitToOnePage ? Math.min(fitFontScale, 1.05) : 1);
+        const blob = await Packer.toBlob(doc);
+        const fileName = `${resumeName || resume.contact.name || 'resume'}.docx`;
+        const file = new File([blob], fileName, {
+          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        });
+        const formData = new FormData();
+        formData.append('file', file);
+        await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
       navigate('/resumes');
     } catch (err) {
       console.error('Save error:', err);
@@ -695,11 +753,13 @@ export default function ResumeEditor() {
     return null;
   };
 
-  if (loadingResume) {
+  if (!hasResume) return <Navigate to="/resumes" replace />;
+
+  if (loadingResume || resume === null) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', flexDirection: 'column', gap: 16 }}>
         <CircularProgress />
-        <span style={{ color: '#6b7280' }}>Parsing resume...</span>
+        <span style={{ color: '#6b7280' }}>Loading resume...</span>
       </div>
     );
   }
@@ -708,6 +768,15 @@ export default function ResumeEditor() {
     <div className="editor-page" ref={containerRef}>
       {/* LEFT: FORM */}
       <div className="editor-form" style={{ width: `${splitPct}%` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <input
+            className="editor-input"
+            style={{ fontSize: 16, fontWeight: 600, flexGrow: 1 }}
+            value={resumeName}
+            onChange={(e) => setResumeName(e.target.value)}
+            placeholder="Resume name"
+          />
+        </div>
         {sectionOrder.map((key, idx) => renderFormSection(key, idx))}
 
         <button className="add-section-btn" style={{ marginBottom: 8 }} onClick={addCustomSection}>

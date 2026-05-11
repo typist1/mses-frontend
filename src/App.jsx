@@ -16,6 +16,7 @@ export default function App() {
             <Route index element={<Home/>}/>
             <Route path='resumes' element={<Resumes/>}/>
             <Route path='editor' element={<ResumeEditor/>}/>
+            <Route path='editor/:resumeId' element={<ResumeEditor/>}/>
           </Route>
 
         </Routes>

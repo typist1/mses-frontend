@@ -600,12 +600,11 @@ function App() {
 
   return (
     <Container maxWidth="lg" className="main-container">
-      {!fileUpload && !fileContent && (
+  
         <div className="hero">
           <h1>Optimize Your Resume for Any Job</h1>
           <p>Upload your resume and compare it against job descriptions to see how well you match</p>
         </div>
-      )}
 
       {(fileUpload || fileContent || jobDescription) && (
         <div className="clear-section">
@@ -621,12 +620,16 @@ function App() {
         </div>
         <div className="section-body">
           {/* Upload option */}
-          <div style={{ opacity: inputMode === 'paste' ? 0.4 : 1, pointerEvents: inputMode === 'paste' ? 'none' : 'auto' }}>
-            <Button variant="contained" component="label" startIcon={<CloudUpload />} className="btn-upload">
-              {fileUpload ? fileUpload.name : 'Choose File'}
-              <input ref={fileInputRef} type="file" hidden accept=".pdf,.docx" onChange={handleFileUpload} />
-            </Button>
-          </div>
+          <Tooltip title={inputMode === 'paste' ? 'Clear text to upload a file' : ''} arrow placement="top">
+            <span style={{ display: 'inline-block' }}>
+              <div style={{ opacity: inputMode === 'paste' ? 0.4 : 1, pointerEvents: inputMode === 'paste' ? 'none' : 'auto' }}>
+                <Button variant="contained" component="label" startIcon={<CloudUpload />} className="btn-upload">
+                  {fileUpload ? fileUpload.name : 'Choose File'}
+                  <input ref={fileInputRef} type="file" hidden accept=".pdf,.docx" onChange={handleFileUpload} />
+                </Button>
+              </div>
+            </span>
+          </Tooltip>
 
           <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0', gap: 12 }}>
             <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
@@ -635,16 +638,20 @@ function App() {
           </div>
 
           {/* Paste option */}
-          <div style={{ opacity: inputMode === 'upload' ? 0.4 : 1, pointerEvents: inputMode === 'upload' ? 'none' : 'auto' }}>
-            <textarea
-              className="text-input"
-              value={inputMode === 'upload' ? '' : fileContent}
-              onChange={(e) => { setFileContent(e.target.value); setInputMode('paste'); }}
-              placeholder="Paste your resume text here..."
-              rows={12}
-              disabled={inputMode === 'upload'}
-            />
-          </div>
+          <Tooltip title={inputMode === 'upload' ? 'Clear file upload to paste text' : ''} arrow placement="top">
+            <span style={{ display: 'block' }}>
+              <div style={{ opacity: inputMode === 'upload' ? 0.4 : 1, pointerEvents: inputMode === 'upload' ? 'none' : 'auto' }}>
+                <textarea
+                  className="text-input"
+                  value={inputMode === 'upload' ? '' : fileContent}
+                  onChange={(e) => { setFileContent(e.target.value); setInputMode(e.target.value ? 'paste' : null); }}
+                  placeholder="Paste your resume text here..."
+                  rows={12}
+                  disabled={inputMode === 'upload'}
+                />
+              </div>
+            </span>
+          </Tooltip>
         </div>
       </div>
 

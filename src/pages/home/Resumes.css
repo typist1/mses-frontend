@@ -183,3 +183,11 @@
       align-self: flex-start;
     }
   }
+
+.resume-name-row:hover .rename-btn {
+  opacity: 0.5 !important;
+}
+
+.rename-btn:hover {
+  opacity: 1 !important;
+}

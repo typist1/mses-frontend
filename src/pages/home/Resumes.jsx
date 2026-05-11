@@ -40,6 +40,8 @@ function Resumes() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [expandedVersions, setExpandedVersions] = useState({});
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState('');
 
   // Preview modal states
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -141,6 +143,28 @@ function Resumes() {
     } catch (error) {
       console.error('Error setting active resume:', error);
       alert('Failed to set active resume. Please try again.');
+    }
+  };
+
+  const handleRenameStart = (resume) => {
+    setRenamingId(resume.id);
+    setRenameValue(resume.file_name.replace(/\.[^/.]+$/, ''));
+  };
+
+  const handleRenameCommit = async (resume) => {
+    const trimmed = renameValue.trim();
+    setRenamingId(null);
+    if (!trimmed || trimmed === resume.file_name.replace(/\.[^/.]+$/, '')) return;
+    const ext = resume.file_name.match(/\.[^/.]+$/)?.[0] || '';
+    try {
+      const token = await getToken();
+      await axios.patch(`${BACKEND_URL}/resumes/${resume.id}`, { file_name: trimmed + ext }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      fetchResumes();
+    } catch (error) {
+      console.error('Error renaming resume:', error);
+      alert('Failed to rename resume. Please try again.');
     }
   };
 
@@ -282,7 +306,32 @@ function Resumes() {
                       {resume.version_label && (
                         <Chip label={resume.version_label} size="small" style={{ marginRight: 6 }} />
                       )}
-                      {resume.file_name}
+                      {renamingId === resume.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => handleRenameCommit(resume)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameCommit(resume);
+                            if (e.key === 'Escape') setRenamingId(null);
+                          }}
+                          style={{ fontSize: 'inherit', fontWeight: 'inherit', border: '1px solid #2563eb', borderRadius: 4, padding: '2px 6px', outline: 'none', width: '80%' }}
+                        />
+                      ) : (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} className="resume-name-row">
+                          {resume.file_name}
+                          <IconButton
+                            size="small"
+                            onClick={() => handleRenameStart(resume)}
+                            title="Rename"
+                            className="rename-btn"
+                            style={{ padding: 2, opacity: 0, transition: 'opacity 0.15s' }}
+                          >
+                            <Edit style={{ fontSize: 14 }} />
+                          </IconButton>
+                        </span>
+                      )}
                     </h3>
                     <div className="resume-meta">
                       <span>{formatFileSize(resume.file_size)}</span>
@@ -299,7 +348,7 @@ function Resumes() {
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Edit">
-                    <IconButton onClick={() => navigate('/editor', { state: { resumeId: resume.id, fileName: resume.file_name } })} className="icon-btn">
+                    <IconButton onClick={() => navigate(`/editor/${resume.id}`)} className="icon-btn">
                       <Edit />
                     </IconButton>
                   </Tooltip>
