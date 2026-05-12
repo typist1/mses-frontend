@@ -4,6 +4,7 @@ import { Button, IconButton, CircularProgress } from '@mui/material';
 import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
 import { buildDocx, Packer } from '@/utils/buildDocx';
+import { exportPdf, exportDocx } from '@/common/functions/exportFile';
 import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
 
@@ -388,24 +389,13 @@ export default function ResumeEditor() {
   const handleExportPdf = async () => {
     setExporting(true);
     try {
-      const resumeWithOrder = { ...resume, sectionOrder };
-      const doc = buildDocx(resumeWithOrder, fitToOnePage ? Math.min(fitFontScale, 1.05) : 1);
-      const docxBlob = await Packer.toBlob(doc);
-      const formData = new FormData();
-      formData.append('file', new File([docxBlob], 'resume.docx', {
-        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      }));
-      const token = await getToken();
-      const response = await axios.post(`${BACKEND_URL}/file/convert-to-pdf`, formData, {
-        headers: { Authorization: `Bearer ${token}` },
-        responseType: 'blob',
+      await exportPdf(resume, {
+        sectionOrder,
+        scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
+        filename: resume.contact.name || 'resume',
+        getToken,
+        backendUrl: BACKEND_URL,
       });
-      const url = URL.createObjectURL(response.data);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${resume.contact.name || 'resume'}.pdf`;
-      link.click();
-      URL.revokeObjectURL(url);
     } catch (err) {
       console.error('PDF export error:', err);
       alert('Failed to export PDF. Please try again.');
@@ -417,15 +407,11 @@ export default function ResumeEditor() {
   const handleExportDocx = async () => {
     setExportingDocx(true);
     try {
-      const resumeWithOrder = { ...resume, sectionOrder };
-      const doc = buildDocx(resumeWithOrder, fitToOnePage ? Math.min(fitFontScale, 1.05) : 1);
-      const blob = await Packer.toBlob(doc);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${resume.contact.name || 'resume'}.docx`;
-      link.click();
-      URL.revokeObjectURL(url);
+      await exportDocx(resume, {
+        sectionOrder,
+        scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
+        filename: resume.contact.name || 'resume',
+      });
     } catch (err) {
       console.error('DOCX export error:', err);
       alert('Failed to export DOCX. Please try again.');

@@ -16,11 +16,12 @@ import {
 import help_outline from '../../assets/help_outline.svg';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
 import { buildDocx, Packer } from '../../utils/buildDocx.js';
-import { getPdfBlob } from '../../utils/buildPdf.js';
+import { exportPdf, exportDocx } from '../../common/functions/exportFile.js';
 import '../../App.css';
 import { UserContext } from '@/common/contexts/UserContext';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+const ANALYSIS_CACHE_KEY = 'mses_analysis_cache';
 
 const COURSE_MAP = Object.fromEntries(COURSES.map((c) => [c.c, c]));
 
@@ -342,12 +343,23 @@ function App() {
 
   // Save modal
   const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [saveAsVersion, setSaveAsVersion] = useState(false);
   const [saveResumeFileName, setSaveResumeFileName] = useState('');
   const [savingResume, setSavingResume] = useState(false);
+  const [analysisSaved, setAnalysisSaved] = useState(false);
 
   const displayedAnalysis = viewingHistoryItem || analysisResult;
   const isReadOnly = viewingHistoryItem !== null;
+
+  useEffect(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem(ANALYSIS_CACHE_KEY));
+      if (cached?.analysisResult) {
+        setAnalysisResult(cached.analysisResult);
+        setChangeLogAccepted(cached.changeLogAccepted || {});
+        setAnalysisSaved(cached.analysisSaved || false);
+      }
+    } catch {}
+  }, []);
 
   const handleClear = () => {
     if (filePreview && fileType === 'pdf') URL.revokeObjectURL(filePreview);
@@ -362,6 +374,8 @@ function App() {
     setAnalysisResult(null);
     setViewingHistoryItem(null);
     setChangeLogAccepted({});
+    setAnalysisSaved(false);
+    localStorage.removeItem(ANALYSIS_CACHE_KEY);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -472,6 +486,10 @@ function App() {
       const accepted = {};
       (data.change_log || []).forEach((_, i) => { accepted[i] = true; });
       setChangeLogAccepted(accepted);
+      setAnalysisSaved(false);
+      try {
+        localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ analysisResult: data, changeLogAccepted: accepted, analysisSaved: false }));
+      } catch {}
       setResultsTab(0);
     } catch (err) {
       alert(err.response?.data?.error || 'Analysis failed. Please try again.');
@@ -482,7 +500,16 @@ function App() {
   };
 
   const handleToggleChange = (index, value) => {
-    setChangeLogAccepted((prev) => ({ ...prev, [index]: value }));
+    setChangeLogAccepted((prev) => {
+      const next = { ...prev, [index]: value };
+      try {
+        const cached = JSON.parse(localStorage.getItem(ANALYSIS_CACHE_KEY));
+        if (cached?.analysisResult) {
+          localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ ...cached, changeLogAccepted: next }));
+        }
+      } catch {}
+      return next;
+    });
   };
 
   const handleLoadHistory = async () => {
@@ -550,9 +577,8 @@ function App() {
 
   const handleOpenInEditor = () => {
     if (!displayedAnalysis) return;
-    // For history: use the stored optimized resume (from when user saved) if available
-    if (isReadOnly && displayedAnalysis.optimized_resume) {
-      navigate('/editor', { state: { resume: displayedAnalysis.optimized_resume } });
+    if (activeResumeId) {
+      navigate(`/editor/${activeResumeId}`);
       return;
     }
     const merged = applyChangeLog(
@@ -578,15 +604,17 @@ function App() {
   };
 
   const getDisplayedEditorResume = () => {
-    if (isReadOnly && displayedAnalysis.optimized_resume) return displayedAnalysis.optimized_resume;
     return buildOptimizedEditorResume(displayedAnalysis, isReadOnly ? {} : changeLogAccepted);
   };
 
   const handleExportPdf = async () => {
     if (!displayedAnalysis) return;
     try {
-      const blob = await getPdfBlob(getDisplayedEditorResume());
-      downloadBlob(blob, `${displayedAnalysis.job_title || 'resume'}-optimized.pdf`);
+      await exportPdf(getDisplayedEditorResume(), {
+        filename: `${displayedAnalysis.job_title || 'resume'}-optimized`,
+        getToken,
+        backendUrl: BACKEND_URL,
+      });
     } catch {
       alert('Failed to export PDF. Please try again.');
     }
@@ -595,9 +623,9 @@ function App() {
   const handleExportDocx = async () => {
     if (!displayedAnalysis) return;
     try {
-      const doc = buildDocx(getDisplayedEditorResume());
-      const blob = await Packer.toBlob(doc);
-      downloadBlob(blob, `${displayedAnalysis.job_title || 'resume'}-optimized.docx`);
+      await exportDocx(getDisplayedEditorResume(), {
+        filename: `${displayedAnalysis.job_title || 'resume'}-optimized`,
+      });
     } catch {
       alert('Failed to export DOCX. Please try again.');
     }
@@ -610,21 +638,23 @@ function App() {
       const { data } = await axios.get(`${BACKEND_URL}/analyze/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!data.parsed_resume && !data.optimized_resume) {
+      if (!data.parsed_resume) {
         alert('No resume data available for this analysis.');
         return;
       }
-      // Use stored optimized resume (saved by user) if available, else apply all changes
-      const editorResume = data.optimized_resume || buildOptimizedEditorResume(data, {});
+      const editorResume = buildOptimizedEditorResume(data, {});
       if (action === 'editor') {
         navigate('/editor', { state: { resume: editorResume } });
       } else if (action === 'pdf') {
-        const blob = await getPdfBlob(editorResume);
-        downloadBlob(blob, `${data.job_title || 'resume'}-optimized.pdf`);
+        await exportPdf(editorResume, {
+          filename: `${data.job_title || 'resume'}-optimized`,
+          getToken,
+          backendUrl: BACKEND_URL,
+        });
       } else if (action === 'docx') {
-        const doc = buildDocx(editorResume);
-        const blob = await Packer.toBlob(doc);
-        downloadBlob(blob, `${data.job_title || 'resume'}-optimized.docx`);
+        await exportDocx(editorResume, {
+          filename: `${data.job_title || 'resume'}-optimized`,
+        });
       }
     } catch {
       alert('Failed to load analysis. Please try again.');
@@ -653,30 +683,30 @@ function App() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('resumeText', fileContent);
-      if (saveAsVersion && activeResumeId) {
-        formData.append('parentResumeId', String(activeResumeId));
-      }
       const token = await getToken();
       await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
       });
 
-      // Persist the accepted optimized resume to the analysis so history can load it exactly
-      if (analysisResult?.id) {
+      if (activeResumeId) {
         try {
           await axios.patch(
-            `${BACKEND_URL}/analyze/${analysisResult.id}/optimized`,
-            { optimized_resume: editorResume },
+            `${BACKEND_URL}/resumes/${activeResumeId}`,
+            { parsed_resume: editorResume },
             { headers: { Authorization: `Bearer ${token}` } }
           );
-          setAnalysisResult((prev) => prev ? { ...prev, optimized_resume: editorResume } : prev);
         } catch {
-          console.error('Failed to store optimized resume in analysis');
+          console.error('Failed to update parsed_resume on resume');
         }
       }
 
       setSaveModalOpen(false);
       setSaveResumeFileName('');
+      setAnalysisSaved(true);
+      try {
+        const cached = JSON.parse(localStorage.getItem(ANALYSIS_CACHE_KEY));
+        if (cached) localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ ...cached, analysisSaved: true }));
+      } catch {}
       alert('Resume saved successfully!');
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to save resume. Please try again.');
@@ -860,15 +890,22 @@ function App() {
                     fileContent={fileContent}
                     changeLogAccepted={changeLogAccepted}
                     onToggle={handleToggleChange}
-                    readOnly={isReadOnly}
+                    readOnly={isReadOnly || analysisSaved}
                   />
                   <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
-                    <Button variant="outlined" onClick={handleExportPdf} disabled={!displayedAnalysis?.parsed_resume && !displayedAnalysis?.optimized_resume}>Export PDF</Button>
-                    <Button variant="outlined" onClick={handleExportDocx} disabled={!displayedAnalysis?.parsed_resume && !displayedAnalysis?.optimized_resume}>Export DOCX</Button>
-                    <Button variant="outlined" onClick={handleOpenInEditor} disabled={!displayedAnalysis?.parsed_resume && !displayedAnalysis?.optimized_resume}>Open in Editor</Button>
+                    <Button variant="outlined" onClick={handleExportPdf} disabled={!displayedAnalysis?.parsed_resume}>Export PDF</Button>
+                    <Button variant="outlined" onClick={handleExportDocx} disabled={!displayedAnalysis?.parsed_resume}>Export DOCX</Button>
+                    <Button variant="outlined" onClick={handleOpenInEditor} disabled={!displayedAnalysis?.parsed_resume}>Open in Editor</Button>
                     {!isReadOnly && (
-                      <Button variant="contained" onClick={() => setSaveModalOpen(true)}>Save Optimized Resume</Button>
+                      <Button variant="contained" disabled={analysisSaved} onClick={() => {
+                        const company = (displayedAnalysis?.company || '').replace(/\s+/g, '');
+                        const position = (displayedAnalysis?.job_title || '').replace(/\s+/g, '');
+                        const now = new Date();
+                        const date = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+                        setSaveResumeFileName(`${company}${position}${date}`);
+                        setSaveModalOpen(true);
+                      }}>{analysisSaved ? 'Resume Saved' : 'Save Optimized Resume'}</Button>
                     )}
                   </div>
                 </>
@@ -937,31 +974,12 @@ function App() {
             <TextField
               fullWidth
               size="small"
-              placeholder={`${displayedAnalysis?.job_title || 'optimized'}-resume`}
+              placeholder="CompanyPositionMMDDYYYY"
               value={saveResumeFileName}
               onChange={(e) => setSaveResumeFileName(e.target.value)}
             />
             <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>.docx will be appended automatically</div>
           </div>
-          {activeResumeId && (
-            <div>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>Save type</label>
-              <div style={{ display: 'flex', gap: 12 }}>
-                <Chip
-                  label="New Resume"
-                  color={!saveAsVersion ? 'primary' : 'default'}
-                  onClick={() => setSaveAsVersion(false)}
-                  clickable
-                />
-                <Chip
-                  label={`New Version of "${activeResumeFileName}"`}
-                  color={saveAsVersion ? 'primary' : 'default'}
-                  onClick={() => setSaveAsVersion(true)}
-                  clickable
-                />
-              </div>
-            </div>
-          )}
           <div style={{ marginTop: 12, fontSize: 13, color: '#6b7280' }}>
             {(displayedAnalysis?.change_log || []).filter((_, i) => changeLogAccepted[i] === false).length} change(s) rejected —
             rejected bullets will use the original text.
