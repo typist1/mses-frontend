@@ -392,7 +392,7 @@ export default function ResumeEditor() {
       await exportPdf(resume, {
         sectionOrder,
         scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
-        filename: resume.contact.name || 'resume',
+        filename: resumeName || resume.contact.name || 'resume',
         getToken,
         backendUrl: BACKEND_URL,
       });
@@ -410,7 +410,7 @@ export default function ResumeEditor() {
       await exportDocx(resume, {
         sectionOrder,
         scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
-        filename: resume.contact.name || 'resume',
+        filename: resumeName || resume.contact.name || 'resume',
       });
     } catch (err) {
       console.error('DOCX export error:', err);
@@ -443,7 +443,7 @@ export default function ResumeEditor() {
           headers: { Authorization: `Bearer ${token}` },
         });
       }
-      navigate('/resumes');
+      alert("Saved changes");
     } catch (err) {
       console.error('Save error:', err);
       alert('Failed to save resume. Please try again.');

@@ -311,6 +311,7 @@ function App() {
   const { user, getToken } = useContext(UserContext);
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const userInteractedRef = useRef(false);
 
   // Resume upload states
   const [fileUpload, setFileUpload] = useState(null);
@@ -346,6 +347,7 @@ function App() {
   const [saveResumeFileName, setSaveResumeFileName] = useState('');
   const [savingResume, setSavingResume] = useState(false);
   const [analysisSaved, setAnalysisSaved] = useState(false);
+  const [savedResumeId, setSavedResumeId] = useState(null);
 
   const displayedAnalysis = viewingHistoryItem || analysisResult;
   const isReadOnly = viewingHistoryItem !== null;
@@ -357,6 +359,7 @@ function App() {
         setAnalysisResult(cached.analysisResult);
         setChangeLogAccepted(cached.changeLogAccepted || {});
         setAnalysisSaved(cached.analysisSaved || false);
+        setSavedResumeId(cached.savedResumeId || null);
       }
     } catch {}
   }, []);
@@ -375,6 +378,7 @@ function App() {
     setViewingHistoryItem(null);
     setChangeLogAccepted({});
     setAnalysisSaved(false);
+    setSavedResumeId(null);
     localStorage.removeItem(ANALYSIS_CACHE_KEY);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -400,6 +404,7 @@ function App() {
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    userInteractedRef.current = true;
     await processFile(file);
     setInputMode('upload');
     setActiveResumeId(null); // manual upload is not the saved resume; skip cache
@@ -415,12 +420,14 @@ function App() {
         });
         const active = (data.resumes || []).find((r) => r.is_active);
         if (!active) return;
+        if (userInteractedRef.current) return;
         setActiveResumeId(active.id);
         setActiveResumeFileName(active.file_name);
         const blobRes = await axios.get(`${BACKEND_URL}/resumes/${active.id}/download`, {
           headers: { Authorization: `Bearer ${token}` },
           responseType: 'blob',
         });
+        if (userInteractedRef.current) return;
         const mimeType = active.file_name.endsWith('.pdf')
           ? 'application/pdf'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -487,8 +494,9 @@ function App() {
       (data.change_log || []).forEach((_, i) => { accepted[i] = true; });
       setChangeLogAccepted(accepted);
       setAnalysisSaved(false);
+      setSavedResumeId(null);
       try {
-        localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ analysisResult: data, changeLogAccepted: accepted, analysisSaved: false }));
+        localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ analysisResult: data, changeLogAccepted: accepted, analysisSaved: false, savedResumeId: null }));
       } catch {}
       setResultsTab(0);
     } catch (err) {
@@ -577,16 +585,11 @@ function App() {
 
   const handleOpenInEditor = () => {
     if (!displayedAnalysis) return;
-    if (activeResumeId) {
-      navigate(`/editor/${activeResumeId}`);
+    if (isReadOnly) {
+      navigate(`/editor/${viewingHistoryItem.resume_id}`);
       return;
     }
-    const merged = applyChangeLog(
-      displayedAnalysis.parsed_resume,
-      displayedAnalysis.change_log,
-      isReadOnly ? {} : changeLogAccepted
-    );
-    navigate('/editor', { state: { resume: toEditorSchema(merged) } });
+    navigate(`/editor/${savedResumeId}`);
   };
 
   const downloadBlob = (blob, filename) => {
@@ -684,9 +687,10 @@ function App() {
       formData.append('file', file);
       formData.append('resumeText', fileContent);
       const token = await getToken();
-      await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
+      const uploadRes = await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
       });
+      const newResumeId = uploadRes.data.resume?.id || null;
 
       if (activeResumeId) {
         try {
@@ -703,9 +707,10 @@ function App() {
       setSaveModalOpen(false);
       setSaveResumeFileName('');
       setAnalysisSaved(true);
+      setSavedResumeId(newResumeId);
       try {
         const cached = JSON.parse(localStorage.getItem(ANALYSIS_CACHE_KEY));
-        if (cached) localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ ...cached, analysisSaved: true }));
+        if (cached) localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ ...cached, analysisSaved: true, savedResumeId: newResumeId }));
       } catch {}
       alert('Resume saved successfully!');
     } catch (err) {
@@ -768,7 +773,12 @@ function App() {
                 <textarea
                   className="text-input"
                   value={inputMode === 'upload' ? '' : fileContent}
-                  onChange={(e) => { setFileContent(e.target.value); setInputMode(e.target.value ? 'paste' : null); }}
+                  onChange={(e) => {
+                    userInteractedRef.current = true;
+                    setFileContent(e.target.value);
+                    setInputMode(e.target.value ? 'paste' : null);
+                    setActiveResumeId(null);
+                  }}
                   placeholder="Paste your resume text here..."
                   rows={12}
                   disabled={inputMode === 'upload'}
@@ -896,7 +906,24 @@ function App() {
                     <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
                     <Button variant="outlined" onClick={handleExportPdf} disabled={!displayedAnalysis?.parsed_resume}>Export PDF</Button>
                     <Button variant="outlined" onClick={handleExportDocx} disabled={!displayedAnalysis?.parsed_resume}>Export DOCX</Button>
-                    <Button variant="outlined" onClick={handleOpenInEditor} disabled={!displayedAnalysis?.parsed_resume}>Open in Editor</Button>
+                    <Tooltip
+                      title={!isReadOnly && !analysisSaved ? 'Save the optimized resume with your changes before opening in editor' : ''}
+                      arrow
+                    >
+                      <span>
+                        <Button
+                          variant="outlined"
+                          onClick={handleOpenInEditor}
+                          disabled={
+                            isReadOnly
+                              ? !viewingHistoryItem?.resume_id || !displayedAnalysis?.parsed_resume
+                              : !analysisSaved || !savedResumeId
+                          }
+                        >
+                          Open in Editor
+                        </Button>
+                      </span>
+                    </Tooltip>
                     {!isReadOnly && (
                       <Button variant="contained" disabled={analysisSaved} onClick={() => {
                         const company = (displayedAnalysis?.company || '').replace(/\s+/g, '');

@@ -6,17 +6,17 @@ export function PrivateRoute() {
   const { user, isLoading } = useUser();
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return null;
   }
 
-  return user ? <Outlet /> : <Navigate to='/login' replace />;
+  return user ? <Outlet /> : <Navigate to='/' replace />;
 }
 
 export function PublicOnlyRoute() {
   const { user, isLoading } = useUser();
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return null;
   }
 
   return !user ? <Outlet /> : <Navigate to='/' replace />;

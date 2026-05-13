@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { UserProvider } from '@/common/contexts/UserContext';
 import NavLayout from '@/common/layouts/NavLayout';
+import { PrivateRoute } from '@/common/components/routes/ProtectedRoutes';
 
 import './App.css';
 import Home from './pages/home/Home';
@@ -14,11 +15,12 @@ export default function App() {
         <Routes>
           <Route path='/' element={<NavLayout />}>
             <Route index element={<Home/>}/>
-            <Route path='resumes' element={<Resumes/>}/>
-            <Route path='editor' element={<ResumeEditor/>}/>
-            <Route path='editor/:resumeId' element={<ResumeEditor/>}/>
+            <Route element={<PrivateRoute />}>
+              <Route path='resumes' element={<Resumes/>}/>
+              <Route path='editor' element={<ResumeEditor/>}/>
+              <Route path='editor/:resumeId' element={<ResumeEditor/>}/>
+            </Route>
           </Route>
-
         </Routes>
       </BrowserRouter>
     </UserProvider>

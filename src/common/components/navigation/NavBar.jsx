@@ -10,13 +10,14 @@ import { UserContext } from "@/common/contexts/UserContext";
 
 function NavBar({ children }) {
   const [signupOpen, setSignupOpen] = useState(false);
-  const { user, logout } = useContext(UserContext);
+  const { user, isLoading, logout } = useContext(UserContext);
   const location = useLocation();
   const path = location.pathname;
 
   const handleLogout = async () => {
     try {
       await logout();
+      window.location.href = '/';
     } catch (error) {
       console.error('Logout error:', error);
       alert('Failed to log out. Please try again.');
@@ -37,7 +38,7 @@ function NavBar({ children }) {
               </a>
             </div>
 
-            <div className="header-right">
+            <div className="header-right" style={{ opacity: isLoading ? 0 : 1, transition: 'opacity 0.15s ease' }}>
               {user ? (
                 <>
                   <Button className={navCls('/')} href="/">Home</Button>
