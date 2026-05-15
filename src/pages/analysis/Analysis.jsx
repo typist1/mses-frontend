@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
   Button, Container, Table, TableBody, TableCell, TableHead, TableRow,
-  Collapse, Chip, CircularProgress, Alert,
+  Collapse, Chip, CircularProgress, Alert, Menu, MenuItem,
 } from '@mui/material';
-import { ExpandMore, ExpandLess, CheckCircle, Cancel } from '@mui/icons-material';
+import { ExpandMore, ExpandLess, CheckCircle, Cancel, ArrowDropDown } from '@mui/icons-material';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
 import { exportPdf, exportDocx } from '../../common/functions/exportFile.js';
 import '../../App.css';
@@ -65,16 +65,16 @@ function toEditorSchema(resume) {
     contactExtra: [],
     summary: resume.summary || '',
     experience: (resume.experience || []).map((exp, i) => ({
-      id: `exp-${i}`, company: exp.company || '', role: exp.title || '',
-      location: exp.location || '', startDate: exp.start || '', endDate: exp.end || '',
+      id: `exp-${i}`, company: exp.company || '', role: exp.title || exp.role || '',
+      location: exp.location || '', startDate: exp.start || exp.startDate || '', endDate: exp.end || exp.endDate || '',
       bullets: exp.bullets || [],
     })),
     education: (resume.education || []).map((edu, i) => ({
-      id: `edu-${i}`, school: edu.institution || '', degree: edu.degree || '',
-      field: edu.field || '', startDate: edu.start || '', endDate: edu.end || '',
+      id: `edu-${i}`, school: edu.institution || edu.school || '', degree: edu.degree || '',
+      field: edu.field || '', startDate: edu.start || edu.startDate || '', endDate: edu.end || edu.endDate || '',
       gpa: edu.gpa || '',
     })),
-    skills: [
+    skills: Array.isArray(resume.skills) ? resume.skills : [
       ...(resume.skills?.technical?.length ? [{ id: 'sk-tech', category: 'Technical', items: resume.skills.technical.join(', ') }] : []),
       ...(resume.skills?.tools?.length ? [{ id: 'sk-tools', category: 'Tools', items: resume.skills.tools.join(', ') }] : []),
       ...(resume.skills?.languages?.length ? [{ id: 'sk-lang', category: 'Languages', items: resume.skills.languages.join(', ') }] : []),
@@ -88,7 +88,7 @@ function toEditorSchema(resume) {
     certifications: (resume.certifications || []).map((cert, i) => ({
       id: `cert-${i}`, name: cert.name || '', issuer: cert.issuer || '', date: cert.date || '',
     })),
-    honorsAwards: (resume.honors_awards || []).map((ha, i) => ({
+    honorsAwards: (resume.honors_awards || resume.honorsAwards || []).map((ha, i) => ({
       id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
     })),
   };
@@ -268,6 +268,7 @@ function Analysis() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [viewingItem, setViewingItem] = useState(null);
   const [viewingLoading, setViewingLoading] = useState(false);
+  const [exportMenuAnchor, setExportMenuAnchor] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -343,6 +344,124 @@ function Analysis() {
     XLSX.writeFile(wb, `resume-analysis-${Date.now()}.xlsx`);
   };
 
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportSkillGapDocx = async () => {
+    if (!viewingItem) return;
+    const { Document, Packer, Paragraph, TextRun, Table: DocxTable, TableRow: DocxTableRow, TableCell: DocxTableCell, WidthType } = await import('docx');
+    const skills = viewingItem.gap_analysis?.skills || [];
+    const changeLog = viewingItem.change_log || [];
+    const h = (text, size = 24) => new Paragraph({ children: [new TextRun({ text, bold: true, size })], spacing: { before: 240, after: 120 } });
+    const p = (text, size = 18) => new Paragraph({ children: [new TextRun({ text: String(text), size })], spacing: { after: 60 } });
+    const cell = (text, bold = false) => new DocxTableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(text || '—'), bold, size: 16 })] })], width: { size: 1, type: WidthType.AUTO } });
+    const headerRow = new DocxTableRow({ children: ['Skill', 'Importance', 'Fit Score', 'Gap Keywords', 'Recommended Actions', 'Courses'].map((t) => cell(t, true)) });
+    const skillRows = skills.map((s) => new DocxTableRow({
+      children: [
+        cell(s.skill),
+        cell(s.importance === 0 ? 'Required' : 'Preferred'),
+        cell(`${s.fit_score} — ${fitLabel(s.fit_score)}`),
+        cell(s.gap_keywords || '—'),
+        cell(s.recommended_actions || '—'),
+        cell((s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—'),
+      ],
+    }));
+    const clParagraphs = changeLog.length > 0 ? [
+      h('Resume Changes'),
+      ...changeLog.flatMap((e, idx) => [
+        new Paragraph({ children: [new TextRun({ text: `${idx + 1}. [${e.section}] ${e.field}`, bold: true, size: 20 })], spacing: { before: 200, after: 60 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Original: ', bold: true, size: 18 }), new TextRun({ text: e.original || '(none)', size: 18 })], spacing: { after: 40 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Rewritten: ', bold: true, size: 18 }), new TextRun({ text: e.rewritten, size: 18 })], spacing: { after: 40 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Reason: ', bold: true, size: 16, color: '666666' }), new TextRun({ text: e.reason, size: 16, color: '666666' })], spacing: { after: 120 } }),
+      ]),
+    ] : [];
+    const doc = new Document({
+      sections: [{
+        children: [
+          new Paragraph({ children: [new TextRun({ text: 'Skill Gap Analysis', bold: true, size: 32 })], spacing: { after: 200 } }),
+          p(`Overall Fit Score: ${viewingItem.overall_fit_score}%`),
+          p(`Job Title: ${viewingItem.job_title || 'N/A'}`),
+          p(`Company: ${viewingItem.company || 'N/A'}`),
+          ...(viewingItem.score_breakdown ? [p(`Score Breakdown: ${viewingItem.score_breakdown}`)] : []),
+          h('Skills Gap Analysis'),
+          new DocxTable({ rows: [headerRow, ...skillRows], width: { size: 9000, type: WidthType.DXA } }),
+          ...clParagraphs,
+        ],
+      }],
+    });
+    const blob = await Packer.toBlob(doc);
+    downloadBlob(blob, `skill-gap-analysis-${Date.now()}.docx`);
+  };
+
+  const handleExportSkillGapPdf = async () => {
+    if (!viewingItem) return;
+    const pdfMakeModule = await import('pdfmake/build/pdfmake');
+    const pdfFontsModule = await import('pdfmake/build/vfs_fonts');
+    const pdfMake = pdfMakeModule.default;
+    const pdfFonts = pdfFontsModule.default;
+    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts;
+    const skills = viewingItem.gap_analysis?.skills || [];
+    const changeLog = viewingItem.change_log || [];
+    const content = [
+      { text: 'Skill Gap Analysis', bold: true, fontSize: 18, margin: [0, 0, 0, 10] },
+      { text: `Overall Fit Score: ${viewingItem.overall_fit_score}%`, bold: true, fontSize: 12 },
+      { text: `Job Title: ${viewingItem.job_title || 'N/A'}`, fontSize: 10 },
+      { text: `Company: ${viewingItem.company || 'N/A'}`, fontSize: 10, margin: [0, 0, 0, 4] },
+      ...(viewingItem.score_breakdown ? [{ text: `Score Breakdown: ${viewingItem.score_breakdown}`, fontSize: 9, color: '#6b7280', margin: [0, 0, 0, 12] }] : [{ text: '', margin: [0, 0, 0, 12] }]),
+      { text: 'Skills Gap Analysis', bold: true, fontSize: 13, margin: [0, 0, 0, 6] },
+      {
+        table: {
+          headerRows: 1,
+          widths: ['auto', 'auto', 'auto', '*', '*', 'auto'],
+          body: [
+            [
+              { text: 'Skill', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Importance', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Fit Score', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Gap Keywords', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Recommended Actions', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Courses', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+            ],
+            ...skills.map((s) => [
+              { text: s.skill, fontSize: 8 },
+              { text: s.importance === 0 ? 'Required' : 'Preferred', fontSize: 8 },
+              { text: `${s.fit_score} — ${fitLabel(s.fit_score)}`, fontSize: 8 },
+              { text: s.gap_keywords || '—', fontSize: 8 },
+              { text: s.recommended_actions || '—', fontSize: 8 },
+              { text: (s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—', fontSize: 8 },
+            ]),
+          ],
+        },
+        layout: 'lightHorizontalLines',
+        margin: [0, 0, 0, 16],
+      },
+    ];
+    if (changeLog.length > 0) {
+      content.push({ text: 'Resume Changes', bold: true, fontSize: 13, margin: [0, 0, 0, 6] });
+      changeLog.forEach((e, idx) => {
+        content.push(
+          { text: `${idx + 1}. [${e.section}] ${e.field}`, bold: true, fontSize: 9, margin: [0, 6, 0, 2] },
+          {
+            columns: [
+              [{ text: 'Original', bold: true, fontSize: 8, color: '#888888' }, { text: e.original || '(none)', fontSize: 8 }],
+              [{ text: 'Rewritten', bold: true, fontSize: 8, color: '#888888' }, { text: e.rewritten, fontSize: 8 }],
+            ],
+            columnGap: 8,
+            margin: [0, 0, 0, 2],
+          },
+          { text: [{ text: 'Reason: ', bold: true }, { text: e.reason, color: '#6b7280' }], fontSize: 8, margin: [0, 0, 0, 6] },
+        );
+      });
+    }
+    pdfMake.createPdf({ content, pageMargins: [36, 36, 36, 36] }).download(`skill-gap-analysis-${Date.now()}.pdf`);
+  };
+
   const handleExportPdf = async () => {
     if (!viewingItem) return;
     try {
@@ -401,7 +520,12 @@ function Analysis() {
           </div>
           <AnalysisResults analysis={viewingItem} />
           <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
+            <Button variant="outlined" endIcon={<ArrowDropDown />} onClick={(e) => setExportMenuAnchor(e.currentTarget)}>Export Skill Gap Analysis</Button>
+            <Menu anchorEl={exportMenuAnchor} open={Boolean(exportMenuAnchor)} onClose={() => setExportMenuAnchor(null)}>
+              <MenuItem onClick={() => { handleExportExcel(); setExportMenuAnchor(null); }}>Excel</MenuItem>
+              <MenuItem onClick={() => { handleExportSkillGapDocx(); setExportMenuAnchor(null); }}>Word (DOCX)</MenuItem>
+              <MenuItem onClick={() => { handleExportSkillGapPdf(); setExportMenuAnchor(null); }}>PDF</MenuItem>
+            </Menu>
             <Button variant="outlined" onClick={handleExportPdf} disabled={!viewingItem?.parsed_resume}>Export PDF</Button>
             <Button variant="outlined" onClick={handleExportDocx} disabled={!viewingItem?.parsed_resume}>Export DOCX</Button>
             <Button

@@ -197,6 +197,7 @@ function fromEditorSchema(r) {
 }
 
 function toEditorSchema(parsed) {
+  if (Array.isArray(parsed?.skills)) return parsed;
   return {
     contact: {
       name: parsed.contact?.name || '',

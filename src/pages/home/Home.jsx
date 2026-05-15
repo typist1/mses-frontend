@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
   Button, Container, TextField, Tooltip, IconButton, CircularProgress,
-  Collapse, Chip,
+  Collapse, Chip, Menu, MenuItem,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Alert,
   Table,
@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import {
   CloudUpload, Clear, Link as LinkIcon, ExpandMore, ExpandLess,
-  CheckCircle, Cancel, FolderOpen, InfoOutlined,
+  CheckCircle, Cancel, FolderOpen, InfoOutlined, Edit as EditIcon, ArrowDropDown,
 } from '@mui/icons-material';
 import help_outline from '../../assets/help_outline.svg';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
@@ -86,16 +86,16 @@ function toEditorSchema(resume) {
     contactExtra: [],
     summary: resume.summary || '',
     experience: (resume.experience || []).map((exp, i) => ({
-      id: `exp-${i}`, company: exp.company || '', role: exp.title || '',
-      location: exp.location || '', startDate: exp.start || '', endDate: exp.end || '',
+      id: `exp-${i}`, company: exp.company || '', role: exp.title || exp.role || '',
+      location: exp.location || '', startDate: exp.start || exp.startDate || '', endDate: exp.end || exp.endDate || '',
       bullets: exp.bullets || [],
     })),
     education: (resume.education || []).map((edu, i) => ({
-      id: `edu-${i}`, school: edu.institution || '', degree: edu.degree || '',
-      field: edu.field || '', startDate: edu.start || '', endDate: edu.end || '',
+      id: `edu-${i}`, school: edu.institution || edu.school || '', degree: edu.degree || '',
+      field: edu.field || '', startDate: edu.start || edu.startDate || '', endDate: edu.end || edu.endDate || '',
       gpa: edu.gpa || '',
     })),
-    skills: [
+    skills: Array.isArray(resume.skills) ? resume.skills : [
       ...(resume.skills?.technical?.length ? [{ id: 'sk-tech', category: 'Technical', items: resume.skills.technical.join(', ') }] : []),
       ...(resume.skills?.tools?.length ? [{ id: 'sk-tools', category: 'Tools', items: resume.skills.tools.join(', ') }] : []),
       ...(resume.skills?.languages?.length ? [{ id: 'sk-lang', category: 'Languages', items: resume.skills.languages.join(', ') }] : []),
@@ -109,7 +109,7 @@ function toEditorSchema(resume) {
     certifications: (resume.certifications || []).map((cert, i) => ({
       id: `cert-${i}`, name: cert.name || '', issuer: cert.issuer || '', date: cert.date || '',
     })),
-    honorsAwards: (resume.honors_awards || []).map((ha, i) => ({
+    honorsAwards: (resume.honors_awards || resume.honorsAwards || []).map((ha, i) => ({
       id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
     })),
   };
@@ -190,8 +190,17 @@ function SkillsTable({ skills }) {
   );
 }
 
-function ChangeLogPanel({ changeLog, accepted, onToggle, readOnly }) {
+function ChangeLogPanel({ changeLog, accepted, onToggle, onEditRewritten, readOnly }) {
   const [expanded, setExpanded] = useState({});
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [hoveredRewritten, setHoveredRewritten] = useState(null);
+
+  const commitEdit = (i) => {
+    if (onEditRewritten) onEditRewritten(i, editText);
+    setEditingIdx(null);
+    setHoveredRewritten(null);
+  };
 
   return (
     <div>
@@ -232,11 +241,36 @@ function ChangeLogPanel({ changeLog, accepted, onToggle, readOnly }) {
                   {entry.original || '(none)'}
                 </div>
               </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 4 }}>REWRITTEN</div>
-                <div style={{ fontSize: 13, color: '#374151', background: '#f0fdf4', padding: 8, borderRadius: 4 }}>
-                  {entry.rewritten}
+              <div
+                onMouseEnter={() => !readOnly && setHoveredRewritten(i)}
+                onMouseLeave={() => editingIdx !== i && setHoveredRewritten(null)}
+              >
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  REWRITTEN
+                  {!readOnly && hoveredRewritten === i && editingIdx !== i && (
+                    <EditIcon
+                      style={{ fontSize: 12, cursor: 'pointer', color: '#6b7280' }}
+                      onClick={(e) => { e.stopPropagation(); setEditingIdx(i); setEditText(entry.rewritten); }}
+                    />
+                  )}
                 </div>
+                {editingIdx === i ? (
+                  <textarea
+                    autoFocus
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onBlur={() => commitEdit(i)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') { setEditingIdx(null); setHoveredRewritten(null); } }}
+                    style={{ width: '100%', fontSize: 13, color: '#374151', background: '#f0fdf4', padding: 8, borderRadius: 4, border: '1px solid #86efac', resize: 'vertical', minHeight: 60, fontFamily: 'inherit', boxSizing: 'border-box' }}
+                  />
+                ) : (
+                  <div
+                    style={{ fontSize: 13, color: '#374151', background: '#f0fdf4', padding: 8, borderRadius: 4, cursor: !readOnly ? 'text' : 'default' }}
+                    onClick={(e) => { if (!readOnly) { e.stopPropagation(); setEditingIdx(i); setEditText(entry.rewritten); } }}
+                  >
+                    {entry.rewritten}
+                  </div>
+                )}
               </div>
               <div style={{ gridColumn: '1/-1', fontSize: 12, color: '#6b7280' }}>
                 <strong>Reason:</strong> {entry.reason}
@@ -249,7 +283,7 @@ function ChangeLogPanel({ changeLog, accepted, onToggle, readOnly }) {
   );
 }
 
-function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, readOnly }) {
+function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, onEditRewritten, readOnly }) {
   const { overall_fit_score, score_breakdown, gap_analysis, change_log, flags } = analysis;
   const skills = gap_analysis?.skills || [];
   const hasFlags = flags?.truncated_resume || flags?.sparse_jd;
@@ -258,7 +292,7 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
     <div>
       {/* Score */}
       <div className="section score-section" style={{ position: 'relative' }}>
-        <Tooltip title="Match score is calculated by a combination of the skills and the degree to which they are present" arrow placement="left">
+        <Tooltip title="Match score is calculated by a combination of the skills' fit scores and whether they are required or not" arrow placement="left">
           <IconButton size="small" style={{ position: 'absolute', top: 8, right: 8, padding: 2 }}>
             <InfoOutlined style={{ fontSize: 16, color: '#9ca3af' }} />
           </IconButton>
@@ -315,6 +349,7 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
             changeLog={change_log}
             accepted={changeLogAccepted}
             onToggle={onToggle}
+            onEditRewritten={onEditRewritten}
             readOnly={readOnly}
           />
         </div>
@@ -360,6 +395,7 @@ function App() {
   const [savingResume, setSavingResume] = useState(false);
   const [analysisSaved, setAnalysisSaved] = useState(false);
   const [savedResumeId, setSavedResumeId] = useState(null);
+  const [exportMenuAnchor, setExportMenuAnchor] = useState(null);
 
   useEffect(() => {
     try {
@@ -564,6 +600,21 @@ function App() {
     });
   };
 
+  const handleEditRewritten = (index, newText) => {
+    setAnalysisResult((prev) => {
+      const changeLog = [...prev.change_log];
+      changeLog[index] = { ...changeLog[index], rewritten: newText };
+      const updated = { ...prev, change_log: changeLog };
+      try {
+        const cached = JSON.parse(localStorage.getItem(ANALYSIS_CACHE_KEY));
+        if (cached?.analysisResult) {
+          localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ ...cached, analysisResult: updated }));
+        }
+      } catch {}
+      return updated;
+    });
+  };
+
   const handleExportExcel = () => {
     if (!analysisResult) return;
     const skills = analysisResult.gap_analysis?.skills || [];
@@ -601,6 +652,116 @@ function App() {
     XLSX.utils.book_append_sheet(wb, ws1, 'Skills Analysis');
     XLSX.utils.book_append_sheet(wb, ws2, 'Change Log');
     XLSX.writeFile(wb, `resume-analysis-${Date.now()}.xlsx`);
+  };
+
+  const handleExportSkillGapDocx = async () => {
+    if (!analysisResult) return;
+    const { Document, Packer: DocxPacker, Paragraph, TextRun, Table: DocxTable, TableRow: DocxTableRow, TableCell: DocxTableCell, WidthType, AlignmentType } = await import('docx');
+    const skills = analysisResult.gap_analysis?.skills || [];
+    const changeLog = analysisResult.change_log || [];
+    const h = (text, size = 24) => new Paragraph({ children: [new TextRun({ text, bold: true, size })], spacing: { before: 240, after: 120 } });
+    const p = (text, size = 18) => new Paragraph({ children: [new TextRun({ text: String(text), size })], spacing: { after: 60 } });
+    const colWidths = [1500, 1000, 1000, 2200, 2200, 1100];
+    const cell = (text, bold = false) => new DocxTableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(text || '—'), bold, size: 16 })] })], width: { size: 1, type: WidthType.AUTO } });
+    const headerRow = new DocxTableRow({ children: ['Skill', 'Importance', 'Fit Score', 'Gap Keywords', 'Recommended Actions', 'Courses'].map((t) => cell(t, true)) });
+    const skillRows = skills.map((s) => new DocxTableRow({
+      children: [
+        cell(s.skill),
+        cell(s.importance === 0 ? 'Required' : 'Preferred'),
+        cell(`${s.fit_score} — ${fitLabel(s.fit_score)}`),
+        cell(s.gap_keywords || '—'),
+        cell(s.recommended_actions || '—'),
+        cell((s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—'),
+      ],
+    }));
+    const clParagraphs = changeLog.length > 0 ? [
+      h('Resume Changes'),
+      ...changeLog.flatMap((e, idx) => [
+        new Paragraph({ children: [new TextRun({ text: `${idx + 1}. [${e.section}] ${e.field}`, bold: true, size: 20 })], spacing: { before: 200, after: 60 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Original: ', bold: true, size: 18 }), new TextRun({ text: e.original || '(none)', size: 18 })], spacing: { after: 40 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Rewritten: ', bold: true, size: 18 }), new TextRun({ text: e.rewritten, size: 18 })], spacing: { after: 40 } }),
+        new Paragraph({ children: [new TextRun({ text: 'Reason: ', bold: true, size: 16, color: '666666' }), new TextRun({ text: e.reason, size: 16, color: '666666' })], spacing: { after: 120 } }),
+      ]),
+    ] : [];
+    const doc = new Document({
+      sections: [{
+        children: [
+          new Paragraph({ children: [new TextRun({ text: 'Skill Gap Analysis', bold: true, size: 32 })], spacing: { after: 200 } }),
+          p(`Overall Fit Score: ${analysisResult.overall_fit_score}%`),
+          p(`Job Title: ${analysisResult.job_title || 'N/A'}`),
+          p(`Company: ${analysisResult.company || 'N/A'}`),
+          ...(analysisResult.score_breakdown ? [p(`Score Breakdown: ${analysisResult.score_breakdown}`)] : []),
+          h('Skills Gap Analysis'),
+          new DocxTable({ rows: [headerRow, ...skillRows], width: { size: 9000, type: WidthType.DXA } }),
+          ...clParagraphs,
+        ],
+      }],
+    });
+    const blob = await DocxPacker.toBlob(doc);
+    downloadBlob(blob, `skill-gap-analysis-${Date.now()}.docx`);
+  };
+
+  const handleExportSkillGapPdf = async () => {
+    if (!analysisResult) return;
+    const pdfMakeModule = await import('pdfmake/build/pdfmake');
+    const pdfFontsModule = await import('pdfmake/build/vfs_fonts');
+    const pdfMake = pdfMakeModule.default;
+    const pdfFonts = pdfFontsModule.default;
+    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts;
+    const skills = analysisResult.gap_analysis?.skills || [];
+    const changeLog = analysisResult.change_log || [];
+    const content = [
+      { text: 'Skill Gap Analysis', bold: true, fontSize: 18, margin: [0, 0, 0, 10] },
+      { text: `Overall Fit Score: ${analysisResult.overall_fit_score}%`, bold: true, fontSize: 12 },
+      { text: `Job Title: ${analysisResult.job_title || 'N/A'}`, fontSize: 10 },
+      { text: `Company: ${analysisResult.company || 'N/A'}`, fontSize: 10, margin: [0, 0, 0, 4] },
+      ...(analysisResult.score_breakdown ? [{ text: `Score Breakdown: ${analysisResult.score_breakdown}`, fontSize: 9, color: '#6b7280', margin: [0, 0, 0, 12] }] : [{ text: '', margin: [0, 0, 0, 12] }]),
+      { text: 'Skills Gap Analysis', bold: true, fontSize: 13, margin: [0, 0, 0, 6] },
+      {
+        table: {
+          headerRows: 1,
+          widths: ['auto', 'auto', 'auto', '*', '*', 'auto'],
+          body: [
+            [
+              { text: 'Skill', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Importance', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Fit Score', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Gap Keywords', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Recommended Actions', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+              { text: 'Courses', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
+            ],
+            ...skills.map((s) => [
+              { text: s.skill, fontSize: 8 },
+              { text: s.importance === 0 ? 'Required' : 'Preferred', fontSize: 8 },
+              { text: `${s.fit_score} — ${fitLabel(s.fit_score)}`, fontSize: 8 },
+              { text: s.gap_keywords || '—', fontSize: 8 },
+              { text: s.recommended_actions || '—', fontSize: 8 },
+              { text: (s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—', fontSize: 8 },
+            ]),
+          ],
+        },
+        layout: 'lightHorizontalLines',
+        margin: [0, 0, 0, 16],
+      },
+    ];
+    if (changeLog.length > 0) {
+      content.push({ text: 'Resume Changes', bold: true, fontSize: 13, margin: [0, 0, 0, 6] });
+      changeLog.forEach((e, idx) => {
+        content.push(
+          { text: `${idx + 1}. [${e.section}] ${e.field}`, bold: true, fontSize: 9, margin: [0, 6, 0, 2] },
+          {
+            columns: [
+              [{ text: 'Original', bold: true, fontSize: 8, color: '#888888' }, { text: e.original || '(none)', fontSize: 8 }],
+              [{ text: 'Rewritten', bold: true, fontSize: 8, color: '#888888' }, { text: e.rewritten, fontSize: 8 }],
+            ],
+            columnGap: 8,
+            margin: [0, 0, 0, 2],
+          },
+          { text: [{ text: 'Reason: ', bold: true }, { text: e.reason, color: '#6b7280' }], fontSize: 8, margin: [0, 0, 0, 6] },
+        );
+      });
+    }
+    pdfMake.createPdf({ content, pageMargins: [36, 36, 36, 36] }).download(`skill-gap-analysis-${Date.now()}.pdf`);
   };
 
   const handleOpenInEditor = () => {
@@ -676,17 +837,26 @@ function App() {
       });
       const newResumeId = uploadRes.data.resume?.id || null;
 
-      if (activeResumeId) {
-        try {
-          await axios.patch(
-            `${BACKEND_URL}/resumes/${activeResumeId}`,
-            { parsed_resume: editorResume },
+      const patchPromises = [];
+      if (newResumeId) {
+        patchPromises.push(
+          axios.patch(
+            `${BACKEND_URL}/resumes/${newResumeId}`,
+            { parsed_resume: merged },
             { headers: { Authorization: `Bearer ${token}` } }
-          );
-        } catch {
-          console.error('Failed to update parsed_resume on resume');
-        }
+          ).catch(() => console.error('Failed to set parsed_resume on new resume'))
+        );
       }
+      if (activeResumeId) {
+        patchPromises.push(
+          axios.patch(
+            `${BACKEND_URL}/resumes/${activeResumeId}`,
+            { parsed_resume: merged },
+            { headers: { Authorization: `Bearer ${token}` } }
+          ).catch(() => console.error('Failed to update parsed_resume on resume'))
+        );
+      }
+      await Promise.all(patchPromises);
 
       setSaveModalOpen(false);
       setSaveResumeFileName('');
@@ -876,10 +1046,16 @@ function App() {
                 fileContent={fileContent}
                 changeLogAccepted={changeLogAccepted}
                 onToggle={handleToggleChange}
+                onEditRewritten={handleEditRewritten}
                 readOnly={analysisSaved}
               />
               <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
+                <Button variant="outlined" endIcon={<ArrowDropDown />} onClick={(e) => setExportMenuAnchor(e.currentTarget)}>Export Skill Gap Analysis</Button>
+                <Menu anchorEl={exportMenuAnchor} open={Boolean(exportMenuAnchor)} onClose={() => setExportMenuAnchor(null)}>
+                  <MenuItem onClick={() => { handleExportExcel(); setExportMenuAnchor(null); }}>Excel</MenuItem>
+                  <MenuItem onClick={() => { handleExportSkillGapDocx(); setExportMenuAnchor(null); }}>Word (DOCX)</MenuItem>
+                  <MenuItem onClick={() => { handleExportSkillGapPdf(); setExportMenuAnchor(null); }}>PDF</MenuItem>
+                </Menu>
                 <Button variant="outlined" onClick={handleExportPdf} disabled={!analysisResult?.parsed_resume}>Export PDF</Button>
                 <Button variant="outlined" onClick={handleExportDocx} disabled={!analysisResult?.parsed_resume}>Export DOCX</Button>
                 <Tooltip title={!analysisSaved ? 'Save the optimized resume with your changes before opening in editor' : ''} arrow>
