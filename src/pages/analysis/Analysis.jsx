@@ -52,44 +52,23 @@ function applyChangeLog(parsedResume, changeLog, accepted) {
   return merged;
 }
 
-function toEditorSchema(resume) {
+function skillsToRows(skills) {
+  if (Array.isArray(skills)) return skills;
+  return [
+    { id: 'sk-tech',  category: 'Technical',   items: (skills?.technical  || []).join(', ') },
+    { id: 'sk-tools', category: 'Tools',        items: (skills?.tools      || []).join(', ') },
+    { id: 'sk-lang',  category: 'Languages',    items: (skills?.languages  || []).join(', ') },
+    { id: 'sk-soft',  category: 'Soft Skills',  items: (skills?.soft       || []).join(', ') },
+  ].filter((r) => r.items);
+}
+
+function prepareMergedForExport(merged) {
   return {
-    contact: {
-      name: resume.contact?.name || '',
-      email: resume.contact?.email || '',
-      phone: resume.contact?.phone || '',
-      linkedin: resume.contact?.linkedin || '',
-      location: resume.contact?.location || '',
-      github: resume.contact?.github || '',
-    },
-    contactExtra: [],
-    summary: resume.summary || '',
-    experience: (resume.experience || []).map((exp, i) => ({
-      id: `exp-${i}`, company: exp.company || '', role: exp.title || exp.role || '',
-      location: exp.location || '', startDate: exp.start || exp.startDate || '', endDate: exp.end || exp.endDate || '',
-      bullets: exp.bullets || [],
-    })),
-    education: (resume.education || []).map((edu, i) => ({
-      id: `edu-${i}`, school: edu.institution || edu.school || '', degree: edu.degree || '',
-      field: edu.field || '', startDate: edu.start || edu.startDate || '', endDate: edu.end || edu.endDate || '',
-      gpa: edu.gpa || '',
-    })),
-    skills: Array.isArray(resume.skills) ? resume.skills : [
-      ...(resume.skills?.technical?.length ? [{ id: 'sk-tech', category: 'Technical', items: resume.skills.technical.join(', ') }] : []),
-      ...(resume.skills?.tools?.length ? [{ id: 'sk-tools', category: 'Tools', items: resume.skills.tools.join(', ') }] : []),
-      ...(resume.skills?.languages?.length ? [{ id: 'sk-lang', category: 'Languages', items: resume.skills.languages.join(', ') }] : []),
-      ...(resume.skills?.soft?.length ? [{ id: 'sk-soft', category: 'Soft Skills', items: resume.skills.soft.join(', ') }] : []),
-    ],
-    projects: (resume.projects || []).map((proj, i) => ({
-      id: `proj-${i}`, name: proj.name || '',
-      tech: Array.isArray(proj.tech) ? proj.tech.join(', ') : (proj.tech || ''),
-      startDate: '', endDate: '', bullets: proj.bullets || [],
-    })),
-    certifications: (resume.certifications || []).map((cert, i) => ({
-      id: `cert-${i}`, name: cert.name || '', issuer: cert.issuer || '', date: cert.date || '',
-    })),
-    honorsAwards: (resume.honors_awards || resume.honorsAwards || []).map((ha, i) => ({
-      id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
+    ...merged,
+    skills: skillsToRows(merged.skills),
+    projects: (merged.projects || []).map((p) => ({
+      ...p,
+      tech: Array.isArray(p.tech) ? p.tech.join(', ') : (p.tech || ''),
     })),
   };
 }
@@ -302,15 +281,6 @@ function Analysis() {
     }
   };
 
-  const getEditorResume = (analysis) => {
-    const pr = analysis.parsed_resume;
-    if (!pr) return null;
-    // parsed_resume may be in editor schema format (if user previously saved optimized resume,
-    // which patches resumes.parsed_resume with editor schema). Detect by skills being an array.
-    if (Array.isArray(pr.skills)) return pr;
-    const merged = applyChangeLog(pr, analysis.change_log, {});
-    return toEditorSchema(merged);
-  };
 
   const handleExportExcel = () => {
     if (!viewingItem) return;
@@ -463,9 +433,10 @@ function Analysis() {
   };
 
   const handleExportPdf = async () => {
-    if (!viewingItem) return;
+    if (!viewingItem?.parsed_resume) return;
     try {
-      await exportPdf(getEditorResume(viewingItem), {
+      const merged = applyChangeLog(viewingItem.parsed_resume, viewingItem.change_log, {});
+      await exportPdf(prepareMergedForExport(merged), {
         filename: `${viewingItem.job_title || 'resume'}-optimized`,
         getToken,
         backendUrl: BACKEND_URL,
@@ -476,9 +447,10 @@ function Analysis() {
   };
 
   const handleExportDocx = async () => {
-    if (!viewingItem) return;
+    if (!viewingItem?.parsed_resume) return;
     try {
-      await exportDocx(getEditorResume(viewingItem), {
+      const merged = applyChangeLog(viewingItem.parsed_resume, viewingItem.change_log, {});
+      await exportDocx(prepareMergedForExport(merged), {
         filename: `${viewingItem.job_title || 'resume'}-optimized`,
       });
     } catch {
@@ -487,9 +459,10 @@ function Analysis() {
   };
 
   const handleOpenInEditor = () => {
-    const editorResume = getEditorResume(viewingItem);
-    if (!editorResume) return;
-    navigate('/editor', { state: { resume: editorResume } });
+    const pr = viewingItem?.parsed_resume;
+    if (!pr) return;
+    const merged = applyChangeLog(pr, viewingItem.change_log, {});
+    navigate('/editor', { state: { resume: merged } });
   };
 
   return (

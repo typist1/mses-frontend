@@ -81,7 +81,7 @@ export function getPdfBlob(resume, fontScale = 1) {
   }
 
   const sectionOrder = resume.sectionOrder || [
-    'contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honorsAwards',
+    'contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honors_awards',
   ];
 
   for (const key of sectionOrder) {
@@ -96,9 +96,9 @@ export function getPdfBlob(resume, fontScale = 1) {
     if (key === 'education' && resume.education.length > 0) {
       addHeading('Education');
       resume.education.forEach((edu) => {
-        const dates = [edu.startDate, edu.endDate].filter(Boolean).join(' \u2013 ');
+        const dates = [edu.start, edu.end].filter(Boolean).join(' \u2013 ');
         const degreeField = [edu.degree, edu.field].filter(Boolean).join(' in ');
-        content.push(entryHeader(edu.school, ''));
+        content.push(entryHeader(edu.institution, ''));
         if (degreeField || dates) {
           content.push({
             columns: [
@@ -118,10 +118,10 @@ export function getPdfBlob(resume, fontScale = 1) {
       resume.experience.forEach((exp) => {
         const rightPart = [
           exp.location,
-          [exp.startDate, exp.endDate].filter(Boolean).join(' \u2013 '),
+          [exp.start, exp.end].filter(Boolean).join(' \u2013 '),
         ].filter(Boolean).join(' | ');
         content.push(entryHeader(exp.company, rightPart));
-        if (exp.role) content.push(italicSub(exp.role));
+        if (exp.title) content.push(italicSub(exp.title));
         content.push(...bulletList(exp.bullets));
       });
       continue;
@@ -130,7 +130,7 @@ export function getPdfBlob(resume, fontScale = 1) {
     if (key === 'projects' && resume.projects.length > 0) {
       addHeading('Projects');
       resume.projects.forEach((proj) => {
-        const dates = [proj.startDate, proj.endDate].filter(Boolean).join(' \u2013 ');
+        const dates = [proj.start, proj.end].filter(Boolean).join(' \u2013 ');
         content.push(entryHeader(proj.name, dates));
         if (proj.tech) content.push(italicSub(proj.tech));
         content.push(...bulletList(proj.bullets));
@@ -158,10 +158,10 @@ export function getPdfBlob(resume, fontScale = 1) {
       continue;
     }
 
-    if (key === 'honorsAwards' && resume.honorsAwards.length > 0) {
+    if (key === 'honors_awards' && resume.honors_awards.length > 0) {
       addHeading('Honors & Awards');
       const runs = [];
-      resume.honorsAwards.forEach((award, i) => {
+      resume.honors_awards.forEach((award, i) => {
         if (i > 0) runs.push({ text: ' \u2022 ', fontSize: sz(10) });
         runs.push({ text: award.title, fontSize: sz(10) });
         if (award.issuer) runs.push({ text: `, ${award.issuer}`, fontSize: sz(10) });

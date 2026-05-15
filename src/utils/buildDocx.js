@@ -55,7 +55,7 @@ export function buildDocx(resume, fontScale = 1) {
     }),
   ];
 
-  const sectionOrder = resume.sectionOrder || ['contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honorsAwards'];
+  const sectionOrder = resume.sectionOrder || ['contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honors_awards'];
 
   for (const key of sectionOrder) {
     if (key === 'contact') continue; // already rendered as header
@@ -69,9 +69,9 @@ export function buildDocx(resume, fontScale = 1) {
     if (key === 'education' && resume.education.length > 0) {
       children.push(docxHeading('Education'));
       resume.education.forEach((edu) => {
-        const dates = [edu.startDate, edu.endDate].filter(Boolean).join(' – ');
+        const dates = [edu.start, edu.end].filter(Boolean).join(' – ');
         const degreeField = [edu.degree, edu.field].filter(Boolean).join(' in ');
-        children.push(docxEntryHeader(edu.school, ''));
+        children.push(docxEntryHeader(edu.institution, ''));
         if (degreeField || dates) {
           children.push(new Paragraph({
             tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
@@ -92,10 +92,10 @@ export function buildDocx(resume, fontScale = 1) {
       resume.experience.forEach((exp) => {
         const rightPart = [
           exp.location,
-          [exp.startDate, exp.endDate].filter(Boolean).join(' – '),
+          [exp.start, exp.end].filter(Boolean).join(' – '),
         ].filter(Boolean).join(' | ');
         children.push(docxEntryHeader(exp.company, rightPart));
-        if (exp.role) children.push(docxItalicSub(exp.role));
+        if (exp.title) children.push(docxItalicSub(exp.title));
         exp.bullets.filter(Boolean).forEach((b) => {
           children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: b, size: sz(20) })], spacing: { after: sp(20), line: 240, lineRule: 'auto' } }));
         });
@@ -106,7 +106,7 @@ export function buildDocx(resume, fontScale = 1) {
     if (key === 'projects' && resume.projects.length > 0) {
       children.push(docxHeading('Projects'));
       resume.projects.forEach((proj) => {
-        const dates = [proj.startDate, proj.endDate].filter(Boolean).join(' – ');
+        const dates = [proj.start, proj.end].filter(Boolean).join(' – ');
         children.push(docxEntryHeader(proj.name, dates));
         if (proj.tech) children.push(docxItalicSub(proj.tech));
         proj.bullets.filter(Boolean).forEach((b) => {
@@ -136,10 +136,10 @@ export function buildDocx(resume, fontScale = 1) {
       continue;
     }
 
-    if (key === 'honorsAwards' && resume.honorsAwards.length > 0) {
+    if (key === 'honors_awards' && resume.honors_awards.length > 0) {
       children.push(docxHeading('Honors & Awards'));
       const honorRuns = [];
-      resume.honorsAwards.forEach((award, i) => {
+      resume.honors_awards.forEach((award, i) => {
         if (i > 0) honorRuns.push(new TextRun({ text: ' • ', size: sz(20) }));
         honorRuns.push(new TextRun({ text: award.title, size: sz(20) }));
         if (award.issuer) honorRuns.push(new TextRun({ text: `, ${award.issuer}`, size: sz(20) }));

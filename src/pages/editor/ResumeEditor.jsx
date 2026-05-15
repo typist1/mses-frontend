@@ -13,7 +13,7 @@ const PAPER_WIDTH = 816;
 const PAPER_HEIGHT = 1056;
 const newId = () => crypto.randomUUID();
 
-const DEFAULT_SECTION_ORDER = ['contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honorsAwards'];
+const DEFAULT_SECTION_ORDER = ['contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honors_awards'];
 const SECTION_TITLES = {
   contact: 'Contact Info',
   summary: 'Professional Summary',
@@ -22,7 +22,7 @@ const SECTION_TITLES = {
   skills: 'Technical Skills',
   projects: 'Projects',
   certifications: 'Certifications',
-  honorsAwards: 'Honors & Awards',
+  honors_awards: 'Honors & Awards',
 };
 
 const DEMO_RESUME = {
@@ -41,10 +41,10 @@ const DEMO_RESUME = {
     {
       id: newId(),
       company: 'Acme Corp',
-      role: 'Software Engineer',
+      title: 'Software Engineer',
       location: 'Chicago, IL',
-      startDate: 'Jun 2022',
-      endDate: 'Present',
+      start: 'Jun 2022',
+      end: 'Present',
       bullets: [
         'Built and maintained React frontend serving 50k+ daily active users',
         'Reduced API response time by 40% through query optimization and caching',
@@ -55,11 +55,11 @@ const DEMO_RESUME = {
   education: [
     {
       id: newId(),
-      school: 'Northwestern University',
+      institution: 'Northwestern University',
       degree: 'M.S.',
       field: 'Computer Science',
-      startDate: 'Sep 2020',
-      endDate: 'Jun 2022',
+      start: 'Sep 2020',
+      end: 'Jun 2022',
       gpa: '3.9',
     },
   ],
@@ -73,8 +73,8 @@ const DEMO_RESUME = {
       id: newId(),
       name: 'Resume Optimizer',
       tech: 'React, Node.js, OpenAI API',
-      startDate: 'Jan 2024',
-      endDate: 'Present',
+      start: 'Jan 2024',
+      end: 'Present',
       bullets: [
         'Built AI-powered resume analyzer that compares resumes against job descriptions',
         'Implemented keyword matching and skills gap analysis using LLMs',
@@ -84,11 +84,52 @@ const DEMO_RESUME = {
   certifications: [
     { id: newId(), name: 'AWS Certified Developer – Associate', issuer: 'Amazon Web Services', date: 'Mar 2023' },
   ],
-  honorsAwards: [
-    { id: newId(), title: "Dean's List", issuer: 'Northwestern University', date: '2021', description: 'Top 5% of graduate cohort' },
+  honors_awards: [
+    { id: newId(), title: "Dean's List", issuer: 'Northwestern University', date: '2021' },
   ],
   customSections: [],
 };
+
+// LLM skills object → editor rows array
+function skillsToRows(skills) {
+  if (Array.isArray(skills)) return skills;
+  return [
+    { id: 'sk-tech',  category: 'Technical',   items: (skills?.technical  || []).join(', ') },
+    { id: 'sk-tools', category: 'Tools',        items: (skills?.tools      || []).join(', ') },
+    { id: 'sk-lang',  category: 'Languages',    items: (skills?.languages  || []).join(', ') },
+    { id: 'sk-soft',  category: 'Soft Skills',  items: (skills?.soft       || []).join(', ') },
+  ].filter((r) => r.items);
+}
+
+// Editor rows array → LLM skills object (for DB save)
+function rowsToSkills(rows) {
+  const map = { technical: [], tools: [], languages: [], soft: [] };
+  const nameMap = { technical: 'technical', tools: 'tools', languages: 'languages', 'soft skills': 'soft', soft: 'soft' };
+  for (const row of (rows || [])) {
+    const key = nameMap[(row.category || '').toLowerCase()] || 'technical';
+    map[key] = (row.items || '').split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return map;
+}
+
+// Prepare LLM-format resume for editor state: expand skills to rows, join tech arrays, add IDs + editor-only fields
+function initFromLLM(r) {
+  return {
+    ...r,
+    skills: skillsToRows(r.skills),
+    projects: (r.projects || []).map((p) => ({
+      ...p,
+      id: p.id || newId(),
+      tech: Array.isArray(p.tech) ? p.tech.join(', ') : (p.tech || ''),
+    })),
+    experience:    (r.experience    || []).map((e)   => ({ ...e,   id: e.id   || newId() })),
+    education:     (r.education     || []).map((edu) => ({ ...edu, id: edu.id || newId() })),
+    certifications:(r.certifications|| []).map((c)   => ({ ...c,   id: c.id   || newId() })),
+    honors_awards: (r.honors_awards || []).map((ha)  => ({ ...ha,  id: ha.id  || newId() })),
+    contactExtra:  r.contactExtra  || [],
+    customSections:r.customSections|| [],
+  };
+}
 
 function ContactField({ label, value, onChange, onRemove, removable = false }) {
   return (
@@ -159,87 +200,6 @@ function FormSection({ title, collapsed, onToggle, onMoveUp, onMoveDown, canMove
   );
 }
 
-function fromEditorSchema(r) {
-  const skillMap = { technical: [], tools: [], languages: [], soft: [] };
-  for (const sk of (r.skills || [])) {
-    const cat = (sk.category || '').toLowerCase();
-    const items = sk.items ? sk.items.split(',').map((s) => s.trim()).filter(Boolean) : [];
-    if (cat === 'technical') skillMap.technical.push(...items);
-    else if (cat === 'tools') skillMap.tools.push(...items);
-    else if (cat === 'languages') skillMap.languages.push(...items);
-    else if (cat === 'soft skills') skillMap.soft.push(...items);
-    else skillMap.technical.push(...items);
-  }
-  return {
-    contact: { ...r.contact },
-    summary: r.summary || '',
-    experience: (r.experience || []).map((exp) => ({
-      company: exp.company, title: exp.role, location: exp.location,
-      start: exp.startDate, end: exp.endDate, bullets: exp.bullets || [],
-    })),
-    education: (r.education || []).map((edu) => ({
-      institution: edu.school, degree: edu.degree, field: edu.field,
-      start: edu.startDate, end: edu.endDate, gpa: edu.gpa,
-    })),
-    skills: skillMap,
-    projects: (r.projects || []).map((proj) => ({
-      name: proj.name,
-      tech: proj.tech ? proj.tech.split(',').map((s) => s.trim()).filter(Boolean) : [],
-      bullets: proj.bullets || [],
-    })),
-    certifications: (r.certifications || []).map((cert) => ({
-      name: cert.name, issuer: cert.issuer, date: cert.date,
-    })),
-    honors_awards: (r.honorsAwards || []).map((ha) => ({
-      title: ha.title, issuer: ha.issuer, date: ha.date,
-    })),
-  };
-}
-
-function toEditorSchema(parsed) {
-  if (Array.isArray(parsed?.skills)) return parsed;
-  return {
-    contact: {
-      name: parsed.contact?.name || '',
-      email: parsed.contact?.email || '',
-      phone: parsed.contact?.phone || '',
-      linkedin: parsed.contact?.linkedin || '',
-      location: parsed.contact?.location || '',
-      github: parsed.contact?.github || '',
-    },
-    contactExtra: [],
-    summary: parsed.summary || '',
-    experience: (parsed.experience || []).map((exp, i) => ({
-      id: `exp-${i}`, company: exp.company || '', role: exp.title || '',
-      location: exp.location || '', startDate: exp.start || '', endDate: exp.end || '',
-      bullets: exp.bullets || [],
-    })),
-    education: (parsed.education || []).map((edu, i) => ({
-      id: `edu-${i}`, school: edu.institution || '', degree: edu.degree || '',
-      field: edu.field || '', startDate: edu.start || '', endDate: edu.end || '',
-      gpa: edu.gpa || '',
-    })),
-    skills: [
-      ...(parsed.skills?.technical?.length ? [{ id: 'sk-tech', category: 'Technical', items: parsed.skills.technical.join(', ') }] : []),
-      ...(parsed.skills?.tools?.length ? [{ id: 'sk-tools', category: 'Tools', items: parsed.skills.tools.join(', ') }] : []),
-      ...(parsed.skills?.languages?.length ? [{ id: 'sk-lang', category: 'Languages', items: parsed.skills.languages.join(', ') }] : []),
-      ...(parsed.skills?.soft?.length ? [{ id: 'sk-soft', category: 'Soft Skills', items: parsed.skills.soft.join(', ') }] : []),
-    ],
-    projects: (parsed.projects || []).map((proj, i) => ({
-      id: `proj-${i}`, name: proj.name || '',
-      tech: Array.isArray(proj.tech) ? proj.tech.join(', ') : (proj.tech || ''),
-      startDate: '', endDate: '', bullets: proj.bullets || [],
-    })),
-    certifications: (parsed.certifications || []).map((cert, i) => ({
-      id: `cert-${i}`, name: cert.name || '', issuer: cert.issuer || '', date: cert.date || '',
-    })),
-    honorsAwards: (parsed.honors_awards || []).map((ha, i) => ({
-      id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
-    })),
-    customSections: [],
-  };
-}
-
 export default function ResumeEditor() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -288,7 +248,11 @@ export default function ResumeEditor() {
 
   const hasResume = location.state?.resume || resumeId;
 
-  const [resume, setResume] = useState(resumeId ? null : (location.state?.resume || null));
+  const [resume, setResume] = useState(() => {
+    if (resumeId) return null;
+    const r = location.state?.resume || null;
+    return r ? initFromLLM(r) : null;
+  });
   const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
   const [collapsed, setCollapsed] = useState(() =>
     Object.fromEntries(DEFAULT_SECTION_ORDER.map((k) => [k, true]))
@@ -305,7 +269,7 @@ export default function ResumeEditor() {
           `${BACKEND_URL}/resumes/${resumeId}/parse`, {},
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        setResume(toEditorSchema(data.parsed_resume));
+        setResume(initFromLLM(data.parsed_resume));
         if (data.file_name) setResumeName(data.file_name.replace(/\.[^/.]+$/, ''));
       } catch (err) {
         console.error('Failed to load resume for editor:', err);
@@ -427,7 +391,14 @@ export default function ResumeEditor() {
       const token = await getToken();
       if (resumeId) {
         await axios.patch(`${BACKEND_URL}/resumes/${resumeId}`, {
-          parsed_resume: fromEditorSchema(resume),
+          parsed_resume: {
+            ...resume,
+            skills: rowsToSkills(resume.skills),
+            projects: resume.projects.map((p) => ({
+              ...p,
+              tech: p.tech ? p.tech.split(',').map((s) => s.trim()).filter(Boolean) : [],
+            })),
+          },
           file_name: resumeName || 'resume',
         }, { headers: { Authorization: `Bearer ${token}` } });
       } else {
@@ -500,17 +471,17 @@ export default function ResumeEditor() {
         {resume.experience.map((exp) => (
           <SectionCard key={exp.id} title={exp.company || 'New Entry'} onRemove={() => removeEntry('experience', exp.id)}>
             <div className="field-row"><span className="field-label">Company</span><input className="editor-input" value={exp.company} onChange={(e) => updateEntry('experience', exp.id, 'company', e.target.value)} placeholder="Company" /></div>
-            <div className="field-row"><span className="field-label">Role</span><input className="editor-input" value={exp.role} onChange={(e) => updateEntry('experience', exp.id, 'role', e.target.value)} placeholder="Job Title" /></div>
+            <div className="field-row"><span className="field-label">Role</span><input className="editor-input" value={exp.title} onChange={(e) => updateEntry('experience', exp.id, 'title', e.target.value)} placeholder="Job Title" /></div>
             <div className="field-row"><span className="field-label">Location</span><input className="editor-input" value={exp.location} onChange={(e) => updateEntry('experience', exp.id, 'location', e.target.value)} placeholder="City, ST" /></div>
             <div className="dates-row">
-              <input className="editor-input" value={exp.startDate} onChange={(e) => updateEntry('experience', exp.id, 'startDate', e.target.value)} placeholder="Start" />
+              <input className="editor-input" value={exp.start} onChange={(e) => updateEntry('experience', exp.id, 'start', e.target.value)} placeholder="Start" />
               <span>–</span>
-              <input className="editor-input" value={exp.endDate} onChange={(e) => updateEntry('experience', exp.id, 'endDate', e.target.value)} placeholder="End / Present" />
+              <input className="editor-input" value={exp.end} onChange={(e) => updateEntry('experience', exp.id, 'end', e.target.value)} placeholder="End / Present" />
             </div>
             <BulletList bullets={exp.bullets} onChange={(b) => updateBullets('experience', exp.id, b)} />
           </SectionCard>
         ))}
-        <button className="add-section-btn" onClick={() => addEntry('experience', { company: '', role: '', location: '', startDate: '', endDate: '', bullets: [] })}>
+        <button className="add-section-btn" onClick={() => addEntry('experience', { company: '', title: '', location: '', start: '', end: '', bullets: [] })}>
           <Add fontSize="small" /> Add Experience
         </button>
       </FormSection>
@@ -519,19 +490,19 @@ export default function ResumeEditor() {
     if (key === 'education') return (
       <FormSection {...props} title="Education">
         {resume.education.map((edu) => (
-          <SectionCard key={edu.id} title={edu.school || 'New Entry'} onRemove={() => removeEntry('education', edu.id)}>
-            <div className="field-row"><span className="field-label">School</span><input className="editor-input" value={edu.school} onChange={(e) => updateEntry('education', edu.id, 'school', e.target.value)} placeholder="University Name" /></div>
+          <SectionCard key={edu.id} title={edu.institution || 'New Entry'} onRemove={() => removeEntry('education', edu.id)}>
+            <div className="field-row"><span className="field-label">School</span><input className="editor-input" value={edu.institution} onChange={(e) => updateEntry('education', edu.id, 'institution', e.target.value)} placeholder="University Name" /></div>
             <div className="field-row"><span className="field-label">Degree</span><input className="editor-input" value={edu.degree} onChange={(e) => updateEntry('education', edu.id, 'degree', e.target.value)} placeholder="B.S. / M.S. / Ph.D." /></div>
             <div className="field-row"><span className="field-label">Field</span><input className="editor-input" value={edu.field} onChange={(e) => updateEntry('education', edu.id, 'field', e.target.value)} placeholder="Computer Science" /></div>
             <div className="dates-row">
-              <input className="editor-input" value={edu.startDate} onChange={(e) => updateEntry('education', edu.id, 'startDate', e.target.value)} placeholder="Start" />
+              <input className="editor-input" value={edu.start} onChange={(e) => updateEntry('education', edu.id, 'start', e.target.value)} placeholder="Start" />
               <span>–</span>
-              <input className="editor-input" value={edu.endDate} onChange={(e) => updateEntry('education', edu.id, 'endDate', e.target.value)} placeholder="End" />
+              <input className="editor-input" value={edu.end} onChange={(e) => updateEntry('education', edu.id, 'end', e.target.value)} placeholder="End" />
             </div>
             <div className="field-row"><span className="field-label">GPA</span><input className="editor-input" value={edu.gpa} onChange={(e) => updateEntry('education', edu.id, 'gpa', e.target.value)} placeholder="3.9" /></div>
           </SectionCard>
         ))}
-        <button className="add-section-btn" onClick={() => addEntry('education', { school: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' })}>
+        <button className="add-section-btn" onClick={() => addEntry('education', { institution: '', degree: '', field: '', start: '', end: '', gpa: '' })}>
           <Add fontSize="small" /> Add Education
         </button>
       </FormSection>
@@ -561,14 +532,14 @@ export default function ResumeEditor() {
             <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={proj.name} onChange={(e) => updateEntry('projects', proj.id, 'name', e.target.value)} placeholder="Project Name" /></div>
             <div className="field-row"><span className="field-label">Tech</span><input className="editor-input" value={proj.tech} onChange={(e) => updateEntry('projects', proj.id, 'tech', e.target.value)} placeholder="React, Node.js, ..." /></div>
             <div className="dates-row">
-              <input className="editor-input" value={proj.startDate} onChange={(e) => updateEntry('projects', proj.id, 'startDate', e.target.value)} placeholder="Start" />
+              <input className="editor-input" value={proj.start} onChange={(e) => updateEntry('projects', proj.id, 'start', e.target.value)} placeholder="Start" />
               <span>–</span>
-              <input className="editor-input" value={proj.endDate} onChange={(e) => updateEntry('projects', proj.id, 'endDate', e.target.value)} placeholder="End" />
+              <input className="editor-input" value={proj.end} onChange={(e) => updateEntry('projects', proj.id, 'end', e.target.value)} placeholder="End" />
             </div>
             <BulletList bullets={proj.bullets} onChange={(b) => updateBullets('projects', proj.id, b)} />
           </SectionCard>
         ))}
-        <button className="add-section-btn" onClick={() => addEntry('projects', { name: '', tech: '', startDate: '', endDate: '', bullets: [] })}>
+        <button className="add-section-btn" onClick={() => addEntry('projects', { name: '', tech: '', start: '', end: '', bullets: [] })}>
           <Add fontSize="small" /> Add Project
         </button>
       </FormSection>
@@ -589,17 +560,16 @@ export default function ResumeEditor() {
       </FormSection>
     );
 
-    if (key === 'honorsAwards') return (
+    if (key === 'honors_awards') return (
       <FormSection {...props} title="Honors & Awards">
-        {resume.honorsAwards.map((award) => (
-          <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honorsAwards', award.id)}>
-            <div className="field-row"><span className="field-label">Title</span><input className="editor-input" value={award.title} onChange={(e) => updateEntry('honorsAwards', award.id, 'title', e.target.value)} placeholder="Award Name" /></div>
-            <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={award.issuer} onChange={(e) => updateEntry('honorsAwards', award.id, 'issuer', e.target.value)} placeholder="Organization" /></div>
-            <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={award.date} onChange={(e) => updateEntry('honorsAwards', award.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
-            <div className="field-row"><span className="field-label">Description</span><input className="editor-input" value={award.description} onChange={(e) => updateEntry('honorsAwards', award.id, 'description', e.target.value)} placeholder="Brief description" /></div>
+        {resume.honors_awards.map((award) => (
+          <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honors_awards', award.id)}>
+            <div className="field-row"><span className="field-label">Title</span><input className="editor-input" value={award.title} onChange={(e) => updateEntry('honors_awards', award.id, 'title', e.target.value)} placeholder="Award Name" /></div>
+            <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={award.issuer} onChange={(e) => updateEntry('honors_awards', award.id, 'issuer', e.target.value)} placeholder="Organization" /></div>
+            <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={award.date} onChange={(e) => updateEntry('honors_awards', award.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
           </SectionCard>
         ))}
-        <button className="add-section-btn" onClick={() => addEntry('honorsAwards', { title: '', issuer: '', date: '', description: '' })}>
+        <button className="add-section-btn" onClick={() => addEntry('honors_awards', { title: '', issuer: '', date: '' })}>
           <Add fontSize="small" /> Add Honor / Award
         </button>
       </FormSection>
@@ -643,10 +613,10 @@ export default function ResumeEditor() {
         <div className="rp-section-title">Education</div>
         {resume.education.map((edu) => (
           <div key={edu.id} className="rp-entry">
-            <div className="rp-entry-header"><span className="rp-entry-main">{edu.school}</span></div>
+            <div className="rp-entry-header"><span className="rp-entry-main">{edu.institution}</span></div>
             <div className="rp-entry-sub-row">
               <span className="rp-entry-sub">{[edu.degree, edu.field].filter(Boolean).join(' in ')}</span>
-              <span className="rp-entry-sub">{[edu.startDate, edu.endDate].filter(Boolean).join(' – ')}</span>
+              <span className="rp-entry-sub">{[edu.start, edu.end].filter(Boolean).join(' – ')}</span>
             </div>
             {edu.gpa && <div className="rp-entry-sub">GPA: {edu.gpa}</div>}
           </div>
@@ -661,9 +631,9 @@ export default function ResumeEditor() {
           <div key={exp.id} className="rp-entry">
             <div className="rp-entry-header">
               <span className="rp-entry-main">{exp.company}</span>
-              <span className="rp-entry-dates">{[exp.location, [exp.startDate, exp.endDate].filter(Boolean).join(' – ')].filter(Boolean).join(' | ')}</span>
+              <span className="rp-entry-dates">{[exp.location, [exp.start, exp.end].filter(Boolean).join(' – ')].filter(Boolean).join(' | ')}</span>
             </div>
-            {exp.role && <div className="rp-entry-sub">{exp.role}</div>}
+            {exp.title && <div className="rp-entry-sub">{exp.title}</div>}
             {exp.bullets.length > 0 && <ul className={`rp-bullets${bulletStyle === 'dot' ? ' dot' : ''}`}>{exp.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
           </div>
         ))}
@@ -677,7 +647,7 @@ export default function ResumeEditor() {
           <div key={proj.id} className="rp-entry">
             <div className="rp-entry-header">
               <span className="rp-entry-main">{proj.name}{proj.tech ? <span className="rp-entry-sub"> | {proj.tech}</span> : ''}</span>
-              <span className="rp-entry-dates">{[proj.startDate, proj.endDate].filter(Boolean).join(' – ')}</span>
+              <span className="rp-entry-dates">{[proj.start, proj.end].filter(Boolean).join(' – ')}</span>
             </div>
             {proj.bullets.length > 0 && <ul className={`rp-bullets${bulletStyle === 'dot' ? ' dot' : ''}`}>{proj.bullets.filter(Boolean).map((b, i) => <li key={i}>{b}</li>)}</ul>}
           </div>
@@ -712,11 +682,11 @@ export default function ResumeEditor() {
       </div>
     );
 
-    if (key === 'honorsAwards' && resume.honorsAwards.length > 0) return (
-      <div key="honorsAwards" className="rp-section">
+    if (key === 'honors_awards' && resume.honors_awards.length > 0) return (
+      <div key="honors_awards" className="rp-section">
         <div className="rp-section-title">Honors &amp; Awards</div>
         <div className="rp-honors-block">
-          {resume.honorsAwards.map((award, i) => (
+          {resume.honors_awards.map((award, i) => (
             <span key={award.id}>
               {i > 0 && ' • '}
               {award.title}
@@ -812,7 +782,6 @@ export default function ResumeEditor() {
             <span className="format-hint">Loose</span>
           </div>
           <div className="format-row">
-            
             <button
               className="bullet-style-toggle"
               onClick={() => setBulletStyle((s) => s === 'dash' ? 'dot' : 'dash')}

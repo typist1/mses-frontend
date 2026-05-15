@@ -73,44 +73,23 @@ function applyChangeLog(parsedResume, changeLog, accepted) {
   return merged;
 }
 
-function toEditorSchema(resume) {
+function skillsToRows(skills) {
+  if (Array.isArray(skills)) return skills;
+  return [
+    { id: 'sk-tech',  category: 'Technical',   items: (skills?.technical  || []).join(', ') },
+    { id: 'sk-tools', category: 'Tools',        items: (skills?.tools      || []).join(', ') },
+    { id: 'sk-lang',  category: 'Languages',    items: (skills?.languages  || []).join(', ') },
+    { id: 'sk-soft',  category: 'Soft Skills',  items: (skills?.soft       || []).join(', ') },
+  ].filter((r) => r.items);
+}
+
+function prepareMergedForExport(merged) {
   return {
-    contact: {
-      name: resume.contact?.name || '',
-      email: resume.contact?.email || '',
-      phone: resume.contact?.phone || '',
-      linkedin: resume.contact?.linkedin || '',
-      location: resume.contact?.location || '',
-      github: resume.contact?.github || '',
-    },
-    contactExtra: [],
-    summary: resume.summary || '',
-    experience: (resume.experience || []).map((exp, i) => ({
-      id: `exp-${i}`, company: exp.company || '', role: exp.title || exp.role || '',
-      location: exp.location || '', startDate: exp.start || exp.startDate || '', endDate: exp.end || exp.endDate || '',
-      bullets: exp.bullets || [],
-    })),
-    education: (resume.education || []).map((edu, i) => ({
-      id: `edu-${i}`, school: edu.institution || edu.school || '', degree: edu.degree || '',
-      field: edu.field || '', startDate: edu.start || edu.startDate || '', endDate: edu.end || edu.endDate || '',
-      gpa: edu.gpa || '',
-    })),
-    skills: Array.isArray(resume.skills) ? resume.skills : [
-      ...(resume.skills?.technical?.length ? [{ id: 'sk-tech', category: 'Technical', items: resume.skills.technical.join(', ') }] : []),
-      ...(resume.skills?.tools?.length ? [{ id: 'sk-tools', category: 'Tools', items: resume.skills.tools.join(', ') }] : []),
-      ...(resume.skills?.languages?.length ? [{ id: 'sk-lang', category: 'Languages', items: resume.skills.languages.join(', ') }] : []),
-      ...(resume.skills?.soft?.length ? [{ id: 'sk-soft', category: 'Soft Skills', items: resume.skills.soft.join(', ') }] : []),
-    ],
-    projects: (resume.projects || []).map((proj, i) => ({
-      id: `proj-${i}`, name: proj.name || '',
-      tech: Array.isArray(proj.tech) ? proj.tech.join(', ') : (proj.tech || ''),
-      startDate: '', endDate: '', bullets: proj.bullets || [],
-    })),
-    certifications: (resume.certifications || []).map((cert, i) => ({
-      id: `cert-${i}`, name: cert.name || '', issuer: cert.issuer || '', date: cert.date || '',
-    })),
-    honorsAwards: (resume.honors_awards || resume.honorsAwards || []).map((ha, i) => ({
-      id: `ha-${i}`, title: ha.title || '', issuer: ha.issuer || '', date: ha.date || '', description: '',
+    ...merged,
+    skills: skillsToRows(merged.skills),
+    projects: (merged.projects || []).map((p) => ({
+      ...p,
+      tech: Array.isArray(p.tech) ? p.tech.join(', ') : (p.tech || ''),
     })),
   };
 }
@@ -396,6 +375,7 @@ function App() {
   const [analysisSaved, setAnalysisSaved] = useState(false);
   const [savedResumeId, setSavedResumeId] = useState(null);
   const [exportMenuAnchor, setExportMenuAnchor] = useState(null);
+  const [exportResumeMenuAnchor, setExportResumeMenuAnchor] = useState(null);
 
   useEffect(() => {
     try {
@@ -778,19 +758,11 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const buildOptimizedEditorResume = (analysis, accepted) => {
-    const merged = applyChangeLog(analysis.parsed_resume, analysis.change_log, accepted);
-    return toEditorSchema(merged);
-  };
-
-  const getDisplayedEditorResume = () => {
-    return buildOptimizedEditorResume(analysisResult, changeLogAccepted);
-  };
-
   const handleExportPdf = async () => {
     if (!analysisResult) return;
     try {
-      await exportPdf(getDisplayedEditorResume(), {
+      const merged = applyChangeLog(analysisResult.parsed_resume, analysisResult.change_log, changeLogAccepted);
+      await exportPdf(prepareMergedForExport(merged), {
         filename: `${analysisResult.job_title || 'resume'}-optimized`,
         getToken,
         backendUrl: BACKEND_URL,
@@ -803,7 +775,8 @@ function App() {
   const handleExportDocx = async () => {
     if (!analysisResult) return;
     try {
-      await exportDocx(getDisplayedEditorResume(), {
+      const merged = applyChangeLog(analysisResult.parsed_resume, analysisResult.change_log, changeLogAccepted);
+      await exportDocx(prepareMergedForExport(merged), {
         filename: `${analysisResult.job_title || 'resume'}-optimized`,
       });
     } catch {
@@ -820,8 +793,7 @@ function App() {
         analysisResult.change_log,
         changeLogAccepted
       );
-      const editorResume = toEditorSchema(merged);
-      const doc = buildDocx(editorResume);
+      const doc = buildDocx(prepareMergedForExport(merged));
       const blob = await Packer.toBlob(doc);
       const rawName = saveResumeFileName || `${analysisResult.job_title || 'optimized'}-resume`;
       const fileName = rawName.endsWith('.docx') ? rawName : `${rawName}.docx`;
@@ -1052,12 +1024,17 @@ function App() {
               <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <Button variant="outlined" endIcon={<ArrowDropDown />} onClick={(e) => setExportMenuAnchor(e.currentTarget)}>Export Skill Gap Analysis</Button>
                 <Menu anchorEl={exportMenuAnchor} open={Boolean(exportMenuAnchor)} onClose={() => setExportMenuAnchor(null)}>
-                  <MenuItem onClick={() => { handleExportExcel(); setExportMenuAnchor(null); }}>Excel</MenuItem>
-                  <MenuItem onClick={() => { handleExportSkillGapDocx(); setExportMenuAnchor(null); }}>Word (DOCX)</MenuItem>
                   <MenuItem onClick={() => { handleExportSkillGapPdf(); setExportMenuAnchor(null); }}>PDF</MenuItem>
+                  <MenuItem onClick={() => { handleExportSkillGapDocx(); setExportMenuAnchor(null); }}>Word (DOCX)</MenuItem>
+                  <MenuItem onClick={() => { handleExportExcel(); setExportMenuAnchor(null); }}>Excel</MenuItem>
+                  
+                  
                 </Menu>
-                <Button variant="outlined" onClick={handleExportPdf} disabled={!analysisResult?.parsed_resume}>Export PDF</Button>
-                <Button variant="outlined" onClick={handleExportDocx} disabled={!analysisResult?.parsed_resume}>Export DOCX</Button>
+                <Button variant="outlined" endIcon={<ArrowDropDown />} disabled={!analysisResult?.parsed_resume} onClick={(e) => setExportResumeMenuAnchor(e.currentTarget)}>Export Optimized Resume</Button>
+                <Menu anchorEl={exportResumeMenuAnchor} open={Boolean(exportResumeMenuAnchor)} onClose={() => setExportResumeMenuAnchor(null)}>
+                  <MenuItem onClick={() => { handleExportPdf(); setExportResumeMenuAnchor(null); }}>PDF</MenuItem>
+                  <MenuItem onClick={() => { handleExportDocx(); setExportResumeMenuAnchor(null); }}>Word (DOCX)</MenuItem>
+                </Menu>
                 <Tooltip title={!analysisSaved ? 'Save the optimized resume with your changes before opening in editor' : ''} arrow>
                   <span>
                     <Button

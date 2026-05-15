@@ -62,8 +62,8 @@ function NavBar({ children }) {
               {user ? (
                 <>
                   <Button className={navCls('/')} href="/">Home</Button>
-                  <Button className={navCls('/resumes')} href="/resumes">My Resumes</Button>
                   <Button className={navCls('/analysis')} href="/analysis">Past Analyses</Button>
+                  <Button className={navCls('/resumes')} href="/resumes">My Resumes</Button>
                   <Button className="btn-header" onClick={handleLogout}>Sign Out</Button>
                 </>
               ) : (
