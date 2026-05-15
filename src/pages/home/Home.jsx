@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import {
   CloudUpload, Clear, Link as LinkIcon, ExpandMore, ExpandLess,
-  CheckCircle, Cancel, FolderOpen,
+  CheckCircle, Cancel, FolderOpen, InfoOutlined,
 } from '@mui/icons-material';
 import help_outline from '../../assets/help_outline.svg';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
@@ -32,12 +32,17 @@ const ANALYSIS_CACHE_KEY = 'mses_analysis_cache';
 const COURSE_MAP = Object.fromEntries(COURSES.map((c) => [c.c, c]));
 
 function fitLabel(score) {
-  return { 1: 'Not Found', 2: 'Weak Signal', 3: 'Transferable', 4: 'Direct Match', 5: 'Strong Match' }[score] || '';
+  return {
+    1: 'Not Found',
+    2: 'Related / Transferable Experience',
+    3: 'Explicitly Demonstrated',
+    4: 'Demonstrated with Measurable Impact',
+  }[score] || '';
 }
 
 function fitRowColor(score) {
-  if (score <= 2) return '#fef2f2';
-  if (score === 3) return '#fffbeb';
+  if (score <= 1) return '#fef2f2';
+  if (score === 2) return '#fffbeb';
   return '#f0fdf4';
 }
 
@@ -129,9 +134,9 @@ function SkillsTable({ skills }) {
           <TableCell><strong>Skill</strong></TableCell>
           <TableCell><strong>Importance</strong></TableCell>
           <TableCell><strong>Fit</strong></TableCell>
-          <TableCell><strong>Gap Keywords</strong></TableCell>
+          <TableCell><strong>Gap Description</strong></TableCell>
           <TableCell><strong>Recommended Actions</strong></TableCell>
-          <TableCell><strong>Courses</strong></TableCell>
+          <TableCell><strong>Recommended Courses</strong></TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
@@ -147,7 +152,7 @@ function SkillsTable({ skills }) {
                 />
               </TableCell>
               <TableCell>
-                <Chip label={`${s.fit_score} — ${fitLabel(s.fit_score)}`} size="small" />
+                <Chip label={`${s.fit_score}`} size="small" />
               </TableCell>
               <TableCell style={{ fontSize: 12 }}>{s.gap_keywords || '—'}</TableCell>
               <TableCell style={{ fontSize: 12 }}>{s.recommended_actions || '—'}</TableCell>
@@ -252,7 +257,12 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
   return (
     <div>
       {/* Score */}
-      <div className="section score-section">
+      <div className="section score-section" style={{ position: 'relative' }}>
+        <Tooltip title="Match score is calculated by a combination of the skills and the degree to which they are present" arrow placement="left">
+          <IconButton size="small" style={{ position: 'absolute', top: 8, right: 8, padding: 2 }}>
+            <InfoOutlined style={{ fontSize: 16, color: '#9ca3af' }} />
+          </IconButton>
+        </Tooltip>
         <div className="score-content">
           <div className="score-circle" style={{
             background: `conic-gradient(${overall_fit_score >= 70 ? '#10b981' : '#f59e0b'} ${overall_fit_score * 3.6}deg, #e5e7eb 0deg)`
@@ -284,9 +294,9 @@ function AnalysisResults({ analysis, fileContent, changeLogAccepted, onToggle, r
         <div className="section-header">
           <h3>Skills Gap Analysis</h3>
           <p>
-            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#fef2f2', border: '1px solid #fca5a5', marginRight: 4 }} />Not found
-            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#fffbeb', border: '1px solid #fde68a', margin: '0 4px 0 12px' }} />Transferable
-            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#f0fdf4', border: '1px solid #6ee7b7', margin: '0 4px 0 12px' }} />Strong match
+            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#fef2f2', border: '1px solid #fca5a5', marginRight: 4 }} />Not Found (1)
+            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#fffbeb', border: '1px solid #fde68a', margin: '0 4px 0 12px' }} />Related / Transferable Experience(2)
+            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#f0fdf4', border: '1px solid #6ee7b7', margin: '0 4px 0 12px' }} />Explicitly Demonstrated (3) with Measurable Impact (4)
           </p>
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -563,8 +573,14 @@ function App() {
       ['Company', analysisResult.company || ''],
       ['Score Breakdown', analysisResult.score_breakdown || ''],
       [],
+      ['Fit Score Legend', ''],
+      ['1', 'Not Found'],
+      ['2', 'Related / Transferable Experience'],
+      ['3', 'Explicitly Demonstrated'],
+      ['4', 'Demonstrated with Measurable Impact'],
+      [],
     ];
-    const header = ['Skill', 'Importance', 'Fit Score', 'Fit Label', 'Gap Keywords', 'Recommended Actions', 'Courses'];
+    const header = ['Skill', 'Importance', 'Fit Score', 'Fit Label', 'Gap Keywords', 'Recommended Actions', 'Recommended Courses'];
     const rows = skills.map((s) => [
       s.skill,
       s.importance === 0 ? 'Required' : 'Preferred',
