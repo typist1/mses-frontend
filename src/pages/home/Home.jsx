@@ -5,13 +5,19 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
   Button, Container, TextField, Tooltip, IconButton, CircularProgress,
-  Table, TableBody, TableCell, TableHead, TableRow, Collapse, Chip,
+  Collapse, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Tabs, Tab, Alert,
+  Alert,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  List, ListItem, ListItemButton, ListItemText,
 } from '@mui/material';
 import {
   CloudUpload, Clear, Link as LinkIcon, ExpandMore, ExpandLess,
-  CheckCircle, Cancel,
+  CheckCircle, Cancel, FolderOpen,
 } from '@mui/icons-material';
 import help_outline from '../../assets/help_outline.svg';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
@@ -322,6 +328,11 @@ function App() {
   const [activeResumeId, setActiveResumeId] = useState(null);
   const [activeResumeFileName, setActiveResumeFileName] = useState(null);
 
+  // Stored resume picker
+  const [storedResumesOpen, setStoredResumesOpen] = useState(false);
+  const [storedResumes, setStoredResumes] = useState([]);
+  const [storedResumesLoading, setStoredResumesLoading] = useState(false);
+
   // Job description states
   const [jobURL, setJobURL] = useState('');
   const [jobDescription, setJobDescription] = useState('');
@@ -333,24 +344,12 @@ function App() {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [changeLogAccepted, setChangeLogAccepted] = useState({});
 
-  // Results tabs
-  const [resultsTab, setResultsTab] = useState(0);
-  const [historyList, setHistoryList] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [viewingHistoryItem, setViewingHistoryItem] = useState(null);
-
-  // History action loading (id of the row being loaded)
-  const [historyActionLoading, setHistoryActionLoading] = useState(null);
-
   // Save modal
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveResumeFileName, setSaveResumeFileName] = useState('');
   const [savingResume, setSavingResume] = useState(false);
   const [analysisSaved, setAnalysisSaved] = useState(false);
   const [savedResumeId, setSavedResumeId] = useState(null);
-
-  const displayedAnalysis = viewingHistoryItem || analysisResult;
-  const isReadOnly = viewingHistoryItem !== null;
 
   useEffect(() => {
     try {
@@ -375,7 +374,6 @@ function App() {
     setJobDescription('');
     setJobLoading(false);
     setAnalysisResult(null);
-    setViewingHistoryItem(null);
     setChangeLogAccepted({});
     setAnalysisSaved(false);
     setSavedResumeId(null);
@@ -440,6 +438,44 @@ function App() {
     autoPopulate();
   }, [user]);
 
+  const handleOpenStoredResumes = async () => {
+    setStoredResumesOpen(true);
+    setStoredResumesLoading(true);
+    try {
+      const token = await getToken();
+      const { data } = await axios.get(`${BACKEND_URL}/resumes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setStoredResumes(data.resumes || []);
+    } catch (err) {
+      console.error('Error fetching resumes:', err);
+    } finally {
+      setStoredResumesLoading(false);
+    }
+  };
+
+  const handleSelectStoredResume = async (resume) => {
+    setStoredResumesOpen(false);
+    userInteractedRef.current = true;
+    try {
+      const token = await getToken();
+      const blobRes = await axios.get(`${BACKEND_URL}/resumes/${resume.id}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob',
+      });
+      const mimeType = resume.file_name.endsWith('.pdf')
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      await processFile(new File([blobRes.data], resume.file_name, { type: mimeType }));
+      setInputMode('upload');
+      setActiveResumeId(resume.id);
+      setActiveResumeFileName(resume.file_name);
+    } catch (err) {
+      console.error('Error loading stored resume:', err);
+      alert('Failed to load resume. Please try again.');
+    }
+  };
+
   const handleExtractText = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -473,7 +509,6 @@ function App() {
   const handleOptimize = async () => {
     setIsOptimizing(true);
     setAnalysisResult(null);
-    setViewingHistoryItem(null);
 
     let phaseIdx = 0;
     setOptimizePhase(PHASES[0]);
@@ -498,7 +533,6 @@ function App() {
       try {
         localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ analysisResult: data, changeLogAccepted: accepted, analysisSaved: false, savedResumeId: null }));
       } catch {}
-      setResultsTab(0);
     } catch (err) {
       alert(err.response?.data?.error || 'Analysis failed. Please try again.');
     } finally {
@@ -520,44 +554,14 @@ function App() {
     });
   };
 
-  const handleLoadHistory = async () => {
-    setResultsTab(1);
-    if (historyList.length > 0) return;
-    setHistoryLoading(true);
-    try {
-      const token = await getToken();
-      const { data } = await axios.get(`${BACKEND_URL}/analyze`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setHistoryList(data.analyses || []);
-    } catch (err) {
-      console.error('Error loading history:', err);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const handleViewHistoryItem = async (id) => {
-    try {
-      const token = await getToken();
-      const { data } = await axios.get(`${BACKEND_URL}/analyze/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setViewingHistoryItem(data);
-      setResultsTab(0);
-    } catch {
-      alert('Failed to load analysis');
-    }
-  };
-
   const handleExportExcel = () => {
-    if (!displayedAnalysis) return;
-    const skills = displayedAnalysis.gap_analysis?.skills || [];
+    if (!analysisResult) return;
+    const skills = analysisResult.gap_analysis?.skills || [];
     const summaryRows = [
-      ['Overall Fit Score', `${displayedAnalysis.overall_fit_score}%`],
-      ['Job Title', displayedAnalysis.job_title || ''],
-      ['Company', displayedAnalysis.company || ''],
-      ['Score Breakdown', displayedAnalysis.score_breakdown || ''],
+      ['Overall Fit Score', `${analysisResult.overall_fit_score}%`],
+      ['Job Title', analysisResult.job_title || ''],
+      ['Company', analysisResult.company || ''],
+      ['Score Breakdown', analysisResult.score_breakdown || ''],
       [],
     ];
     const header = ['Skill', 'Importance', 'Fit Score', 'Fit Label', 'Gap Keywords', 'Recommended Actions', 'Courses'];
@@ -572,7 +576,7 @@ function App() {
     ]);
     const ws1 = XLSX.utils.aoa_to_sheet([...summaryRows, header, ...rows]);
     const clHeader = ['Section', 'Field', 'Original', 'Rewritten', 'Reason', 'Status'];
-    const clRows = (displayedAnalysis.change_log || []).map((e, i) => [
+    const clRows = (analysisResult.change_log || []).map((e, i) => [
       e.section, e.field, e.original, e.rewritten, e.reason,
       changeLogAccepted[i] !== false ? 'Accepted' : 'Rejected',
     ]);
@@ -584,11 +588,7 @@ function App() {
   };
 
   const handleOpenInEditor = () => {
-    if (!displayedAnalysis) return;
-    if (isReadOnly) {
-      navigate(`/editor/${viewingHistoryItem.resume_id}`);
-      return;
-    }
+    if (!analysisResult) return;
     navigate(`/editor/${savedResumeId}`);
   };
 
@@ -607,14 +607,14 @@ function App() {
   };
 
   const getDisplayedEditorResume = () => {
-    return buildOptimizedEditorResume(displayedAnalysis, isReadOnly ? {} : changeLogAccepted);
+    return buildOptimizedEditorResume(analysisResult, changeLogAccepted);
   };
 
   const handleExportPdf = async () => {
-    if (!displayedAnalysis) return;
+    if (!analysisResult) return;
     try {
       await exportPdf(getDisplayedEditorResume(), {
-        filename: `${displayedAnalysis.job_title || 'resume'}-optimized`,
+        filename: `${analysisResult.job_title || 'resume'}-optimized`,
         getToken,
         backendUrl: BACKEND_URL,
       });
@@ -624,61 +624,29 @@ function App() {
   };
 
   const handleExportDocx = async () => {
-    if (!displayedAnalysis) return;
+    if (!analysisResult) return;
     try {
       await exportDocx(getDisplayedEditorResume(), {
-        filename: `${displayedAnalysis.job_title || 'resume'}-optimized`,
+        filename: `${analysisResult.job_title || 'resume'}-optimized`,
       });
     } catch {
       alert('Failed to export DOCX. Please try again.');
     }
   };
 
-  const handleHistoryAction = async (id, action) => {
-    setHistoryActionLoading(`${String(id)}-${action}`);
-    try {
-      const token = await getToken();
-      const { data } = await axios.get(`${BACKEND_URL}/analyze/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!data.parsed_resume) {
-        alert('No resume data available for this analysis.');
-        return;
-      }
-      const editorResume = buildOptimizedEditorResume(data, {});
-      if (action === 'editor') {
-        navigate('/editor', { state: { resume: editorResume } });
-      } else if (action === 'pdf') {
-        await exportPdf(editorResume, {
-          filename: `${data.job_title || 'resume'}-optimized`,
-          getToken,
-          backendUrl: BACKEND_URL,
-        });
-      } else if (action === 'docx') {
-        await exportDocx(editorResume, {
-          filename: `${data.job_title || 'resume'}-optimized`,
-        });
-      }
-    } catch {
-      alert('Failed to load analysis. Please try again.');
-    } finally {
-      setHistoryActionLoading(null);
-    }
-  };
-
   const handleSaveResume = async () => {
-    if (!displayedAnalysis) return;
+    if (!analysisResult) return;
     setSavingResume(true);
     try {
       const merged = applyChangeLog(
-        displayedAnalysis.parsed_resume,
-        displayedAnalysis.change_log,
-        isReadOnly ? {} : changeLogAccepted
+        analysisResult.parsed_resume,
+        analysisResult.change_log,
+        changeLogAccepted
       );
       const editorResume = toEditorSchema(merged);
       const doc = buildDocx(editorResume);
       const blob = await Packer.toBlob(doc);
-      const rawName = saveResumeFileName || `${displayedAnalysis.job_title || 'optimized'}-resume`;
+      const rawName = saveResumeFileName || `${analysisResult.job_title || 'optimized'}-resume`;
       const fileName = rawName.endsWith('.docx') ? rawName : `${rawName}.docx`;
       const file = new File([blob], fileName, {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -751,11 +719,16 @@ function App() {
           {/* Upload option */}
           <Tooltip title={inputMode === 'paste' ? 'Clear text to upload a file' : ''} arrow placement="top">
             <span style={{ display: 'inline-block' }}>
-              <div style={{ opacity: inputMode === 'paste' ? 0.4 : 1, pointerEvents: inputMode === 'paste' ? 'none' : 'auto' }}>
+              <div style={{ opacity: inputMode === 'paste' ? 0.4 : 1, pointerEvents: inputMode === 'paste' ? 'none' : 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Button variant="contained" component="label" startIcon={<CloudUpload />} className="btn-upload">
                   {fileUpload ? fileUpload.name : 'Choose File'}
                   <input ref={fileInputRef} type="file" hidden accept=".pdf,.docx" onChange={handleFileUpload} />
                 </Button>
+                {user && (
+                  <Button variant="outlined" startIcon={<FolderOpen />} onClick={handleOpenStoredResumes}>
+                    Select Saved Resume
+                  </Button>
+                )}
               </div>
             </span>
           </Tooltip>
@@ -864,133 +837,88 @@ function App() {
       {/* Results area */}
       {user && (
         <div style={{ marginTop: 32 }}>
-          <Tabs value={resultsTab} onChange={(_, v) => { if (v === 1) handleLoadHistory(); else setResultsTab(v); }}>
-            <Tab label="Analysis Results" />
-            <Tab label="Past Analyses" />
-          </Tabs>
-
-          {resultsTab === 0 && (
-            <div>
-              {!displayedAnalysis && !isOptimizing && (
-                <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
-                  Run an analysis to see results here.
-                </div>
-              )}
-              {isOptimizing && (
-                <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                  <CircularProgress />
-                  <div style={{ marginTop: 16, color: '#6b7280' }}>{optimizePhase}</div>
-                </div>
-              )}
-              {displayedAnalysis && !isOptimizing && (
-                <>
-                  {isReadOnly && (
-                    <Alert severity="info" style={{ margin: '12px 0' }}>
-                      Viewing historical analysis for <strong>{displayedAnalysis.job_title}</strong> at <strong>{displayedAnalysis.company}</strong>.
-                      <Button size="small" style={{ marginLeft: 8 }} onClick={() => setViewingHistoryItem(null)}>Back to Current</Button>
-                    </Alert>
-                  )}
-                  <div className="results-divider">
-                    <h2>
-                      {displayedAnalysis.job_title ? `${displayedAnalysis.job_title}${displayedAnalysis.company ? ` — ${displayedAnalysis.company}` : ''}` : 'Analysis Results'}
-                    </h2>
-                  </div>
-                  <AnalysisResults
-                    analysis={displayedAnalysis}
-                    fileContent={fileContent}
-                    changeLogAccepted={changeLogAccepted}
-                    onToggle={handleToggleChange}
-                    readOnly={isReadOnly || analysisSaved}
-                  />
-                  <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
-                    <Button variant="outlined" onClick={handleExportPdf} disabled={!displayedAnalysis?.parsed_resume}>Export PDF</Button>
-                    <Button variant="outlined" onClick={handleExportDocx} disabled={!displayedAnalysis?.parsed_resume}>Export DOCX</Button>
-                    <Tooltip
-                      title={!isReadOnly && !analysisSaved ? 'Save the optimized resume with your changes before opening in editor' : ''}
-                      arrow
-                    >
-                      <span>
-                        <Button
-                          variant="outlined"
-                          onClick={handleOpenInEditor}
-                          disabled={
-                            isReadOnly
-                              ? !viewingHistoryItem?.resume_id || !displayedAnalysis?.parsed_resume
-                              : !analysisSaved || !savedResumeId
-                          }
-                        >
-                          Open in Editor
-                        </Button>
-                      </span>
-                    </Tooltip>
-                    {!isReadOnly && (
-                      <Button variant="contained" disabled={analysisSaved} onClick={() => {
-                        const company = (displayedAnalysis?.company || '').replace(/\s+/g, '');
-                        const position = (displayedAnalysis?.job_title || '').replace(/\s+/g, '');
-                        const now = new Date();
-                        const date = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
-                        setSaveResumeFileName(`${company}${position}${date}`);
-                        setSaveModalOpen(true);
-                      }}>{analysisSaved ? 'Resume Saved' : 'Save Optimized Resume'}</Button>
-                    )}
-                  </div>
-                </>
-              )}
+          {!analysisResult && !isOptimizing && (
+            <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
+              Run an analysis to see results here.
             </div>
           )}
-
-          {resultsTab === 1 && (
-            <div style={{ marginTop: 16 }}>
-              {historyLoading && <div style={{ textAlign: 'center', padding: 32 }}><CircularProgress /></div>}
-              {!historyLoading && historyList.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '48px 0', color: '#9ca3af' }}>
-                  No past analyses found.
-                </div>
-              )}
-              {!historyLoading && historyList.length > 0 && (
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell><strong>Job Title</strong></TableCell>
-                      <TableCell><strong>Company</strong></TableCell>
-                      <TableCell><strong>Fit Score</strong></TableCell>
-                      <TableCell><strong>Date</strong></TableCell>
-                      <TableCell><strong>Actions</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {historyList.map((item) => {
-                      const isRowLoading = historyActionLoading?.startsWith(String(item.id));
-                      return (
-                        <TableRow key={item.id}>
-                          <TableCell>{item.job_title || '—'}</TableCell>
-                          <TableCell>{item.company || '—'}</TableCell>
-                          <TableCell>
-                            <Chip
-                              label={`${item.overall_fit_score}%`}
-                              size="small"
-                              color={item.overall_fit_score >= 70 ? 'success' : 'warning'}
-                            />
-                          </TableCell>
-                          <TableCell>{new Date(item.created_at).toLocaleDateString()}</TableCell>
-                          <TableCell>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              <Button size="small" variant="outlined" onClick={() => handleViewHistoryItem(item.id)}>
-                                View
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
+          {isOptimizing && (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <CircularProgress />
+              <div style={{ marginTop: 16, color: '#6b7280' }}>{optimizePhase}</div>
             </div>
+          )}
+          {analysisResult && !isOptimizing && (
+            <>
+              <div className="results-divider">
+                <h2>
+                  {analysisResult.job_title ? `${analysisResult.job_title}${analysisResult.company ? ` — ${analysisResult.company}` : ''}` : 'Analysis Results'}
+                </h2>
+              </div>
+              <AnalysisResults
+                analysis={analysisResult}
+                fileContent={fileContent}
+                changeLogAccepted={changeLogAccepted}
+                onToggle={handleToggleChange}
+                readOnly={analysisSaved}
+              />
+              <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <Button variant="outlined" onClick={handleExportExcel}>Export to Excel</Button>
+                <Button variant="outlined" onClick={handleExportPdf} disabled={!analysisResult?.parsed_resume}>Export PDF</Button>
+                <Button variant="outlined" onClick={handleExportDocx} disabled={!analysisResult?.parsed_resume}>Export DOCX</Button>
+                <Tooltip title={!analysisSaved ? 'Save the optimized resume with your changes before opening in editor' : ''} arrow>
+                  <span>
+                    <Button
+                      variant="outlined"
+                      onClick={handleOpenInEditor}
+                      disabled={!analysisSaved || !savedResumeId}
+                    >
+                      Open in Editor
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button variant="contained" disabled={analysisSaved} onClick={() => {
+                  const company = (analysisResult?.company || '').replace(/\s+/g, '');
+                  const position = (analysisResult?.job_title || '').replace(/\s+/g, '');
+                  const now = new Date();
+                  const date = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${now.getFullYear()}`;
+                  setSaveResumeFileName(`${company}${position}${date}`);
+                  setSaveModalOpen(true);
+                }}>{analysisSaved ? 'Resume Saved' : 'Save Optimized Resume'}</Button>
+              </div>
+            </>
           )}
         </div>
       )}
+
+      {/* Stored Resume Picker */}
+      <Dialog open={storedResumesOpen} onClose={() => setStoredResumesOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Select a Saved Resume</DialogTitle>
+        <DialogContent>
+          {storedResumesLoading ? (
+            <div style={{ textAlign: 'center', padding: 24 }}><CircularProgress /></div>
+          ) : storedResumes.length === 0 ? (
+            <div style={{ color: '#6b7280', padding: '16px 0' }}>No saved resumes found.</div>
+          ) : (
+            <List disablePadding>
+              {storedResumes.map((r) => (
+                <ListItem key={r.id} disablePadding>
+                  <ListItemButton onClick={() => handleSelectStoredResume(r)}>
+                    <ListItemText
+                      primary={r.file_name}
+                      secondary={new Date(r.created_at).toLocaleDateString()}
+                    />
+                    {r.is_active && <Chip label="Active" size="small" color="primary" style={{ marginLeft: 8 }} />}
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStoredResumesOpen(false)}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Save Resume Modal */}
       <Dialog open={saveModalOpen} onClose={() => setSaveModalOpen(false)} maxWidth="sm" fullWidth>
@@ -1008,7 +936,7 @@ function App() {
             <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>.docx will be appended automatically</div>
           </div>
           <div style={{ marginTop: 12, fontSize: 13, color: '#6b7280' }}>
-            {(displayedAnalysis?.change_log || []).filter((_, i) => changeLogAccepted[i] === false).length} change(s) rejected —
+            {(analysisResult?.change_log || []).filter((_, i) => changeLogAccepted[i] === false).length} change(s) rejected —
             rejected bullets will use the original text.
           </div>
         </DialogContent>

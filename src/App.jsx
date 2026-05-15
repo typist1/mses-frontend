@@ -7,6 +7,7 @@ import './App.css';
 import Home from './pages/home/Home';
 import Resumes from './pages/home/Resumes';
 import ResumeEditor from './pages/editor/ResumeEditor';
+import Analysis from './pages/analysis/Analysis';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
               <Route path='resumes' element={<Resumes/>}/>
               <Route path='editor' element={<ResumeEditor/>}/>
               <Route path='editor/:resumeId' element={<ResumeEditor/>}/>
+              <Route path='analysis' element={<Analysis/>}/>
             </Route>
           </Route>
         </Routes>
