@@ -1,9 +1,9 @@
 import { buildDocx, Packer } from '@/utils/buildDocx';
 import axios from 'axios';
 
-export async function exportPdf(resume, { sectionOrder, scale = 1, filename, getToken, backendUrl }) {
+export async function exportPdf(resume, { sectionOrder, scale = 1, filename, getToken, backendUrl, format }) {
   const resumeData = sectionOrder ? { ...resume, sectionOrder } : resume;
-  const doc = buildDocx(resumeData, scale);
+  const doc = buildDocx(resumeData, scale, format);
   const docxBlob = await Packer.toBlob(doc);
   const formData = new FormData();
   formData.append('file', new File([docxBlob], 'resume.docx', {
@@ -22,9 +22,9 @@ export async function exportPdf(resume, { sectionOrder, scale = 1, filename, get
   URL.revokeObjectURL(url);
 }
 
-export async function exportDocx(resume, { sectionOrder, scale = 1, filename }) {
+export async function exportDocx(resume, { sectionOrder, scale = 1, filename, format }) {
   const resumeData = sectionOrder ? { ...resume, sectionOrder } : resume;
-  const doc = buildDocx(resumeData, scale);
+  const doc = buildDocx(resumeData, scale, format);
   const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

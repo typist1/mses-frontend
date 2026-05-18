@@ -4,6 +4,7 @@ import { Button, IconButton, CircularProgress } from '@mui/material';
 import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
 import { buildDocx, Packer } from '@/utils/buildDocx';
+import { getPdfBlob } from '@/utils/buildPdf';
 import { exportPdf, exportDocx } from '@/common/functions/exportFile';
 import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
@@ -236,6 +237,10 @@ export default function ResumeEditor() {
     if (location.state?.fileName) return location.state.fileName.replace(/\.[^/.]+$/, '');
     return 'My Resume';
   });
+  const [resumeExt, setResumeExt] = useState(() => {
+    const name = location.state?.fileName || '';
+    return name.match(/\.[^/.]+$/)?.[0]?.toLowerCase() || '.docx';
+  });
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingDocx, setExportingDocx] = useState(false);
@@ -269,10 +274,24 @@ export default function ResumeEditor() {
           `${BACKEND_URL}/resumes/${resumeId}/parse`, {},
           { headers: { Authorization: `Bearer ${token}` } }
         );
-        setResume(initFromLLM(data.parsed_resume));
-        if (data.file_name) setResumeName(data.file_name.replace(/\.[^/.]+$/, ''));
+        const loaded = initFromLLM(data.parsed_resume);
+        setResume(loaded);
+        const savedOrder = data.parsed_resume?.sectionOrder;
+        if (Array.isArray(savedOrder) && savedOrder.length > 0) {
+          setSectionOrder(savedOrder);
+          setCollapsed((c) => {
+            const next = { ...c };
+            savedOrder.forEach((k) => { if (!(k in next)) next[k] = true; });
+            return next;
+          });
+        }
+        if (data.file_name) {
+          setResumeName(data.file_name.replace(/\.[^/.]+$/, ''));
+          setResumeExt(data.file_name.match(/\.[^/.]+$/)?.[0]?.toLowerCase() || '.docx');
+        }
       } catch (err) {
         console.error('Failed to load resume for editor:', err);
+        alert('Could not load this resume. It may have been deleted.');
         navigate('/resumes', { replace: true });
       } finally {
         setLoadingResume(false);
@@ -360,6 +379,7 @@ export default function ResumeEditor() {
         filename: resumeName || resume.contact.name || 'resume',
         getToken,
         backendUrl: BACKEND_URL,
+        format,
       });
     } catch (err) {
       console.error('PDF export error:', err);
@@ -376,6 +396,7 @@ export default function ResumeEditor() {
         sectionOrder,
         scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
         filename: resumeName || resume.contact.name || 'resume',
+        format,
       });
     } catch (err) {
       console.error('DOCX export error:', err);
@@ -386,39 +407,31 @@ export default function ResumeEditor() {
   };
 
   const handleSaveToResumes = async () => {
+    if (!resumeId) {
+      alert('No resume linked. Use Export to download your changes.');
+      return;
+    }
     setSaving(true);
     try {
       const token = await getToken();
-      if (resumeId) {
-        await axios.patch(`${BACKEND_URL}/resumes/${resumeId}`, {
-          parsed_resume: {
-            ...resume,
-            skills: rowsToSkills(resume.skills),
-            projects: resume.projects.map((p) => ({
-              ...p,
-              tech: p.tech ? p.tech.split(',').map((s) => s.trim()).filter(Boolean) : [],
-            })),
-          },
-          file_name: resumeName || 'resume',
-        }, { headers: { Authorization: `Bearer ${token}` } });
-      } else {
-        const resumeWithOrder = { ...resume, sectionOrder };
-        const doc = buildDocx(resumeWithOrder, fitToOnePage ? Math.min(fitFontScale, 1.05) : 1);
-        const blob = await Packer.toBlob(doc);
-        const fileName = `${resumeName || resume.contact.name || 'resume'}.docx`;
-        const file = new File([blob], fileName, {
-          type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        });
-        const formData = new FormData();
-        formData.append('file', file);
-        await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      }
-      alert("Saved changes");
+      const parsedForSave = {
+        ...resume,
+        sectionOrder,
+        skills: rowsToSkills(resume.skills),
+        projects: resume.projects.map((p) => ({
+          ...p,
+          tech: p.tech ? p.tech.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        })),
+      };
+      await axios.patch(
+        `${BACKEND_URL}/resumes/${resumeId}`,
+        { parsed_resume: parsedForSave },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      alert('Saved changes');
     } catch (err) {
       console.error('Save error:', err);
-      alert('Failed to save resume. Please try again.');
+      alert(err.response?.data?.error || 'Failed to save resume. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -748,7 +761,7 @@ export default function ResumeEditor() {
             {exportingDocx ? <CircularProgress size={18} /> : 'Export DOCX'}
           </Button>
           <Button variant="contained" onClick={handleSaveToResumes} disabled={saving} className="btn-analyze">
-            {saving ? <CircularProgress size={18} color="inherit" /> : 'Save to My Resumes'}
+            {saving ? <CircularProgress size={18} color="inherit" /> : 'Save Changes'}
           </Button>
         </div>
       </div>

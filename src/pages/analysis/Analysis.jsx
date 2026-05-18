@@ -1,253 +1,22 @@
 import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import {
   Button, Container, Table, TableBody, TableCell, TableHead, TableRow,
-  Collapse, Chip, CircularProgress, Alert, Menu, MenuItem,
+  Chip, CircularProgress,
 } from '@mui/material';
-import { ExpandMore, ExpandLess, CheckCircle, Cancel, ArrowDropDown } from '@mui/icons-material';
-import { COURSES } from '../../assets/MSESCoursesFull.js';
-import { exportPdf, exportDocx } from '../../common/functions/exportFile.js';
+import AnalysisResults from '../../common/components/AnalysisResults.jsx';
 import '../../App.css';
 import { UserContext } from '@/common/contexts/UserContext';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
-const COURSE_MAP = Object.fromEntries(COURSES.map((c) => [c.c, c]));
-
-function fitLabel(score) {
-  return { 1: 'Not Found', 2: 'Weak Signal', 3: 'Transferable', 4: 'Direct Match', 5: 'Strong Match' }[score] || '';
-}
-
-function fitRowColor(score) {
-  if (score <= 2) return '#fef2f2';
-  if (score === 3) return '#fffbeb';
-  return '#f0fdf4';
-}
-
-function applyChangeLog(parsedResume, changeLog, accepted) {
-  const merged = JSON.parse(JSON.stringify(parsedResume));
-  (changeLog || []).forEach((entry, i) => {
-    if (accepted[i] !== false) {
-      if (entry.section === 'summary') {
-        merged.summary = entry.rewritten;
-      } else if (entry.section === 'experience') {
-        for (const exp of merged.experience || []) {
-          const idx = (exp.bullets || []).indexOf(entry.original);
-          if (idx !== -1) { exp.bullets[idx] = entry.rewritten; break; }
-        }
-      } else if (entry.section === 'projects') {
-        for (const proj of merged.projects || []) {
-          const idx = (proj.bullets || []).indexOf(entry.original);
-          if (idx !== -1) { proj.bullets[idx] = entry.rewritten; break; }
-        }
-      } else if (entry.section === 'skills' && entry.original === '') {
-        const cat = entry.field;
-        if (merged.skills?.[cat] && !merged.skills[cat].includes(entry.rewritten)) {
-          merged.skills[cat].push(entry.rewritten);
-        }
-      }
-    }
-  });
-  return merged;
-}
-
-function skillsToRows(skills) {
-  if (Array.isArray(skills)) return skills;
-  return [
-    { id: 'sk-tech',  category: 'Technical',   items: (skills?.technical  || []).join(', ') },
-    { id: 'sk-tools', category: 'Tools',        items: (skills?.tools      || []).join(', ') },
-    { id: 'sk-lang',  category: 'Languages',    items: (skills?.languages  || []).join(', ') },
-    { id: 'sk-soft',  category: 'Soft Skills',  items: (skills?.soft       || []).join(', ') },
-  ].filter((r) => r.items);
-}
-
-function prepareMergedForExport(merged) {
-  return {
-    ...merged,
-    skills: skillsToRows(merged.skills),
-    projects: (merged.projects || []).map((p) => ({
-      ...p,
-      tech: Array.isArray(p.tech) ? p.tech.join(', ') : (p.tech || ''),
-    })),
-  };
-}
-
-function SkillsTable({ skills }) {
-  const [expandedCourse, setExpandedCourse] = useState(null);
-
-  return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          <TableCell><strong>Skill</strong></TableCell>
-          <TableCell><strong>Importance</strong></TableCell>
-          <TableCell><strong>Fit</strong></TableCell>
-          <TableCell><strong>Gap Keywords</strong></TableCell>
-          <TableCell><strong>Recommended Actions</strong></TableCell>
-          <TableCell><strong>Courses</strong></TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {(skills || []).map((s, i) => (
-          <React.Fragment key={i}>
-            <TableRow style={{ backgroundColor: fitRowColor(s.fit_score) }}>
-              <TableCell>{s.skill}</TableCell>
-              <TableCell>
-                <Chip
-                  label={s.importance === 0 ? 'Required' : 'Preferred'}
-                  size="small"
-                  color={s.importance === 0 ? 'error' : 'default'}
-                />
-              </TableCell>
-              <TableCell>
-                <Chip label={`${s.fit_score} — ${fitLabel(s.fit_score)}`} size="small" />
-              </TableCell>
-              <TableCell style={{ fontSize: 12 }}>{s.gap_keywords || '—'}</TableCell>
-              <TableCell style={{ fontSize: 12 }}>{s.recommended_actions || '—'}</TableCell>
-              <TableCell>
-                {(s.suggested_courses || []).map((sc) => (
-                  <Chip
-                    key={sc.course_code}
-                    label={sc.course_code}
-                    size="small"
-                    style={{ margin: 2, cursor: COURSE_MAP[sc.course_code] ? 'pointer' : 'default' }}
-                    onClick={() => setExpandedCourse(expandedCourse === `${i}-${sc.course_code}` ? null : `${i}-${sc.course_code}`)}
-                  />
-                ))}
-              </TableCell>
-            </TableRow>
-            {(s.suggested_courses || []).map((sc) => {
-              const course = COURSE_MAP[sc.course_code];
-              if (!course || expandedCourse !== `${i}-${sc.course_code}`) return null;
-              return (
-                <TableRow key={`detail-${sc.course_code}`} style={{ backgroundColor: '#f8fafc' }}>
-                  <TableCell colSpan={6} style={{ padding: '12px 16px' }}>
-                    <strong>{course.c} — {course.t}</strong> ({course.q})<br />
-                    <em style={{ fontSize: 13, color: '#555' }}>{course.s}</em><br />
-                    <span style={{ fontSize: 12, color: '#666' }}>
-                      <strong>Keywords:</strong> {(course.k || []).join(', ')}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </React.Fragment>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function ChangeLogPanel({ changeLog }) {
-  const [expanded, setExpanded] = useState({});
-
-  return (
-    <div>
-      {(changeLog || []).map((entry, i) => (
-        <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
-          <div
-            style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', backgroundColor: '#f9fafb' }}
-            onClick={() => setExpanded((prev) => ({ ...prev, [i]: !prev[i] }))}
-          >
-            <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>
-              [{entry.section}] {entry.field}
-            </span>
-            {expanded[i] ? <ExpandLess /> : <ExpandMore />}
-          </div>
-          <Collapse in={!!expanded[i]}>
-            <div style={{ padding: '10px 12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 4 }}>ORIGINAL</div>
-                <div style={{ fontSize: 13, color: '#374151', background: '#fef2f2', padding: 8, borderRadius: 4 }}>
-                  {entry.original || '(none)'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginBottom: 4 }}>REWRITTEN</div>
-                <div style={{ fontSize: 13, color: '#374151', background: '#f0fdf4', padding: 8, borderRadius: 4 }}>
-                  {entry.rewritten}
-                </div>
-              </div>
-              <div style={{ gridColumn: '1/-1', fontSize: 12, color: '#6b7280' }}>
-                <strong>Reason:</strong> {entry.reason}
-              </div>
-            </div>
-          </Collapse>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AnalysisResults({ analysis }) {
-  const { overall_fit_score, score_breakdown, gap_analysis, change_log, flags } = analysis;
-  const skills = gap_analysis?.skills || [];
-  const hasFlags = flags?.truncated_resume || flags?.sparse_jd;
-
-  return (
-    <div>
-      <div className="section score-section">
-        <div className="score-content">
-          <div className="score-circle" style={{
-            background: `conic-gradient(${overall_fit_score >= 70 ? '#10b981' : '#f59e0b'} ${overall_fit_score * 3.6}deg, #e5e7eb 0deg)`
-          }}>
-            <div className="score-inner">
-              <div className="score-number">{overall_fit_score}%</div>
-              <div className="score-label">Match</div>
-            </div>
-          </div>
-          <div className="score-message">
-            <div>{overall_fit_score >= 70 ? 'Your resume is a good match for this position' : 'Your resume could be improved to better match this job'}</div>
-            {score_breakdown && <div style={{ marginTop: 6, fontSize: 14, color: '#6b7280' }}>{score_breakdown}</div>}
-          </div>
-        </div>
-      </div>
-
-      {hasFlags && (
-        <div className="section">
-          <Alert severity="warning" style={{ marginBottom: 8 }}>
-            {flags.truncated_resume && <div>Resume was very long; only the first 15,000 characters were analyzed.</div>}
-            {flags.sparse_jd && <div>This job description appears sparse. The analysis may be lower quality.</div>}
-          </Alert>
-        </div>
-      )}
-
-      <div className="section">
-        <div className="section-header">
-          <h3>Skills Gap Analysis</h3>
-          <p>
-            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#fef2f2', border: '1px solid #fca5a5', marginRight: 4 }} />Not found
-            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#fffbeb', border: '1px solid #fde68a', margin: '0 4px 0 12px' }} />Transferable
-            <span style={{ display: 'inline-block', width: 12, height: 12, background: '#f0fdf4', border: '1px solid #6ee7b7', margin: '0 4px 0 12px' }} />Strong match
-          </p>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <SkillsTable skills={skills} />
-        </div>
-      </div>
-
-      {change_log?.length > 0 && (
-        <div className="section">
-          <div className="section-header">
-            <h3>Resume Changes</h3>
-          </div>
-          <ChangeLogPanel changeLog={change_log} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 function Analysis() {
   const { getToken } = useContext(UserContext);
-  const navigate = useNavigate();
 
   const [historyList, setHistoryList] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [viewingItem, setViewingItem] = useState(null);
   const [viewingLoading, setViewingLoading] = useState(false);
-  const [exportMenuAnchor, setExportMenuAnchor] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -281,190 +50,6 @@ function Analysis() {
     }
   };
 
-
-  const handleExportExcel = () => {
-    if (!viewingItem) return;
-    const skills = viewingItem.gap_analysis?.skills || [];
-    const summaryRows = [
-      ['Overall Fit Score', `${viewingItem.overall_fit_score}%`],
-      ['Job Title', viewingItem.job_title || ''],
-      ['Company', viewingItem.company || ''],
-      ['Score Breakdown', viewingItem.score_breakdown || ''],
-      [],
-    ];
-    const header = ['Skill', 'Importance', 'Fit Score', 'Fit Label', 'Gap Keywords', 'Recommended Actions', 'Courses'];
-    const rows = skills.map((s) => [
-      s.skill,
-      s.importance === 0 ? 'Required' : 'Preferred',
-      s.fit_score,
-      fitLabel(s.fit_score),
-      s.gap_keywords || '',
-      s.recommended_actions || '',
-      (s.suggested_courses || []).map((c) => c.course_code).join(', '),
-    ]);
-    const ws1 = XLSX.utils.aoa_to_sheet([...summaryRows, header, ...rows]);
-    const clHeader = ['Section', 'Field', 'Original', 'Rewritten', 'Reason'];
-    const clRows = (viewingItem.change_log || []).map((e) => [
-      e.section, e.field, e.original, e.rewritten, e.reason,
-    ]);
-    const ws2 = XLSX.utils.aoa_to_sheet([clHeader, ...clRows]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws1, 'Skills Analysis');
-    XLSX.utils.book_append_sheet(wb, ws2, 'Change Log');
-    XLSX.writeFile(wb, `resume-analysis-${Date.now()}.xlsx`);
-  };
-
-  const downloadBlob = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportSkillGapDocx = async () => {
-    if (!viewingItem) return;
-    const { Document, Packer, Paragraph, TextRun, Table: DocxTable, TableRow: DocxTableRow, TableCell: DocxTableCell, WidthType } = await import('docx');
-    const skills = viewingItem.gap_analysis?.skills || [];
-    const changeLog = viewingItem.change_log || [];
-    const h = (text, size = 24) => new Paragraph({ children: [new TextRun({ text, bold: true, size })], spacing: { before: 240, after: 120 } });
-    const p = (text, size = 18) => new Paragraph({ children: [new TextRun({ text: String(text), size })], spacing: { after: 60 } });
-    const cell = (text, bold = false) => new DocxTableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(text || '—'), bold, size: 16 })] })], width: { size: 1, type: WidthType.AUTO } });
-    const headerRow = new DocxTableRow({ children: ['Skill', 'Importance', 'Fit Score', 'Gap Keywords', 'Recommended Actions', 'Courses'].map((t) => cell(t, true)) });
-    const skillRows = skills.map((s) => new DocxTableRow({
-      children: [
-        cell(s.skill),
-        cell(s.importance === 0 ? 'Required' : 'Preferred'),
-        cell(`${s.fit_score} — ${fitLabel(s.fit_score)}`),
-        cell(s.gap_keywords || '—'),
-        cell(s.recommended_actions || '—'),
-        cell((s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—'),
-      ],
-    }));
-    const clParagraphs = changeLog.length > 0 ? [
-      h('Resume Changes'),
-      ...changeLog.flatMap((e, idx) => [
-        new Paragraph({ children: [new TextRun({ text: `${idx + 1}. [${e.section}] ${e.field}`, bold: true, size: 20 })], spacing: { before: 200, after: 60 } }),
-        new Paragraph({ children: [new TextRun({ text: 'Original: ', bold: true, size: 18 }), new TextRun({ text: e.original || '(none)', size: 18 })], spacing: { after: 40 } }),
-        new Paragraph({ children: [new TextRun({ text: 'Rewritten: ', bold: true, size: 18 }), new TextRun({ text: e.rewritten, size: 18 })], spacing: { after: 40 } }),
-        new Paragraph({ children: [new TextRun({ text: 'Reason: ', bold: true, size: 16, color: '666666' }), new TextRun({ text: e.reason, size: 16, color: '666666' })], spacing: { after: 120 } }),
-      ]),
-    ] : [];
-    const doc = new Document({
-      sections: [{
-        children: [
-          new Paragraph({ children: [new TextRun({ text: 'Skill Gap Analysis', bold: true, size: 32 })], spacing: { after: 200 } }),
-          p(`Overall Fit Score: ${viewingItem.overall_fit_score}%`),
-          p(`Job Title: ${viewingItem.job_title || 'N/A'}`),
-          p(`Company: ${viewingItem.company || 'N/A'}`),
-          ...(viewingItem.score_breakdown ? [p(`Score Breakdown: ${viewingItem.score_breakdown}`)] : []),
-          h('Skills Gap Analysis'),
-          new DocxTable({ rows: [headerRow, ...skillRows], width: { size: 9000, type: WidthType.DXA } }),
-          ...clParagraphs,
-        ],
-      }],
-    });
-    const blob = await Packer.toBlob(doc);
-    downloadBlob(blob, `skill-gap-analysis-${Date.now()}.docx`);
-  };
-
-  const handleExportSkillGapPdf = async () => {
-    if (!viewingItem) return;
-    const pdfMakeModule = await import('pdfmake/build/pdfmake');
-    const pdfFontsModule = await import('pdfmake/build/vfs_fonts');
-    const pdfMake = pdfMakeModule.default;
-    const pdfFonts = pdfFontsModule.default;
-    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts;
-    const skills = viewingItem.gap_analysis?.skills || [];
-    const changeLog = viewingItem.change_log || [];
-    const content = [
-      { text: 'Skill Gap Analysis', bold: true, fontSize: 18, margin: [0, 0, 0, 10] },
-      { text: `Overall Fit Score: ${viewingItem.overall_fit_score}%`, bold: true, fontSize: 12 },
-      { text: `Job Title: ${viewingItem.job_title || 'N/A'}`, fontSize: 10 },
-      { text: `Company: ${viewingItem.company || 'N/A'}`, fontSize: 10, margin: [0, 0, 0, 4] },
-      ...(viewingItem.score_breakdown ? [{ text: `Score Breakdown: ${viewingItem.score_breakdown}`, fontSize: 9, color: '#6b7280', margin: [0, 0, 0, 12] }] : [{ text: '', margin: [0, 0, 0, 12] }]),
-      { text: 'Skills Gap Analysis', bold: true, fontSize: 13, margin: [0, 0, 0, 6] },
-      {
-        table: {
-          headerRows: 1,
-          widths: ['auto', 'auto', 'auto', '*', '*', 'auto'],
-          body: [
-            [
-              { text: 'Skill', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
-              { text: 'Importance', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
-              { text: 'Fit Score', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
-              { text: 'Gap Keywords', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
-              { text: 'Recommended Actions', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
-              { text: 'Courses', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
-            ],
-            ...skills.map((s) => [
-              { text: s.skill, fontSize: 8 },
-              { text: s.importance === 0 ? 'Required' : 'Preferred', fontSize: 8 },
-              { text: `${s.fit_score} — ${fitLabel(s.fit_score)}`, fontSize: 8 },
-              { text: s.gap_keywords || '—', fontSize: 8 },
-              { text: s.recommended_actions || '—', fontSize: 8 },
-              { text: (s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—', fontSize: 8 },
-            ]),
-          ],
-        },
-        layout: 'lightHorizontalLines',
-        margin: [0, 0, 0, 16],
-      },
-    ];
-    if (changeLog.length > 0) {
-      content.push({ text: 'Resume Changes', bold: true, fontSize: 13, margin: [0, 0, 0, 6] });
-      changeLog.forEach((e, idx) => {
-        content.push(
-          { text: `${idx + 1}. [${e.section}] ${e.field}`, bold: true, fontSize: 9, margin: [0, 6, 0, 2] },
-          {
-            columns: [
-              [{ text: 'Original', bold: true, fontSize: 8, color: '#888888' }, { text: e.original || '(none)', fontSize: 8 }],
-              [{ text: 'Rewritten', bold: true, fontSize: 8, color: '#888888' }, { text: e.rewritten, fontSize: 8 }],
-            ],
-            columnGap: 8,
-            margin: [0, 0, 0, 2],
-          },
-          { text: [{ text: 'Reason: ', bold: true }, { text: e.reason, color: '#6b7280' }], fontSize: 8, margin: [0, 0, 0, 6] },
-        );
-      });
-    }
-    pdfMake.createPdf({ content, pageMargins: [36, 36, 36, 36] }).download(`skill-gap-analysis-${Date.now()}.pdf`);
-  };
-
-  const handleExportPdf = async () => {
-    if (!viewingItem?.parsed_resume) return;
-    try {
-      const merged = applyChangeLog(viewingItem.parsed_resume, viewingItem.change_log, {});
-      await exportPdf(prepareMergedForExport(merged), {
-        filename: `${viewingItem.job_title || 'resume'}-optimized`,
-        getToken,
-        backendUrl: BACKEND_URL,
-      });
-    } catch {
-      alert('Failed to export PDF. Please try again.');
-    }
-  };
-
-  const handleExportDocx = async () => {
-    if (!viewingItem?.parsed_resume) return;
-    try {
-      const merged = applyChangeLog(viewingItem.parsed_resume, viewingItem.change_log, {});
-      await exportDocx(prepareMergedForExport(merged), {
-        filename: `${viewingItem.job_title || 'resume'}-optimized`,
-      });
-    } catch {
-      alert('Failed to export DOCX. Please try again.');
-    }
-  };
-
-  const handleOpenInEditor = () => {
-    const pr = viewingItem?.parsed_resume;
-    if (!pr) return;
-    const merged = applyChangeLog(pr, viewingItem.change_log, {});
-    navigate('/editor', { state: { resume: merged } });
-  };
-
   return (
     <Container maxWidth="lg" className="main-container">
       <div className="hero">
@@ -480,10 +65,10 @@ function Analysis() {
 
       {!viewingLoading && viewingItem && (
         <div>
-          <Alert severity="info" style={{ margin: '12px 0' }}>
-            Viewing historical analysis for <strong>{viewingItem.job_title}</strong> at <strong>{viewingItem.company}</strong>.
-            <Button size="small" style={{ marginLeft: 8 }} onClick={() => setViewingItem(null)}>Back to List</Button>
-          </Alert>
+          <div style={{ margin: '12px 0', padding: '12px 16px', background: '#eff6ff', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+            Viewing: <strong>{viewingItem.job_title}</strong> at <strong>{viewingItem.company}</strong>
+            <Button size="small" style={{ marginLeft: 8 }} onClick={() => setViewingItem(null)}>← Back to List</Button>
+          </div>
           <div className="results-divider">
             <h2>
               {viewingItem.job_title
@@ -491,24 +76,11 @@ function Analysis() {
                 : 'Analysis Results'}
             </h2>
           </div>
-          <AnalysisResults analysis={viewingItem} />
-          <div className="analyze-section" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <Button variant="outlined" endIcon={<ArrowDropDown />} onClick={(e) => setExportMenuAnchor(e.currentTarget)}>Export Skill Gap Analysis</Button>
-            <Menu anchorEl={exportMenuAnchor} open={Boolean(exportMenuAnchor)} onClose={() => setExportMenuAnchor(null)}>
-              <MenuItem onClick={() => { handleExportExcel(); setExportMenuAnchor(null); }}>Excel</MenuItem>
-              <MenuItem onClick={() => { handleExportSkillGapDocx(); setExportMenuAnchor(null); }}>Word (DOCX)</MenuItem>
-              <MenuItem onClick={() => { handleExportSkillGapPdf(); setExportMenuAnchor(null); }}>PDF</MenuItem>
-            </Menu>
-            <Button variant="outlined" onClick={handleExportPdf} disabled={!viewingItem?.parsed_resume}>Export PDF</Button>
-            <Button variant="outlined" onClick={handleExportDocx} disabled={!viewingItem?.parsed_resume}>Export DOCX</Button>
-            <Button
-              variant="outlined"
-              onClick={handleOpenInEditor}
-              disabled={!viewingItem?.parsed_resume}
-            >
-              Open in Editor
-            </Button>
-          </div>
+          <AnalysisResults
+            analysis={viewingItem}
+            readOnly={true}
+            changeLogAccepted={{}}
+          />
         </div>
       )}
 

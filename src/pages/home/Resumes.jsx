@@ -26,10 +26,32 @@ import {
   ExpandLess,
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
+import { buildDocx, Packer } from '@/utils/buildDocx';
 import { UserContext } from '@/common/contexts/UserContext';
 import './Resumes.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+
+// Converts DB-format parsed_resume → buildDocx-compatible format
+function prepareForDocx(parsedResume) {
+  const skills = Array.isArray(parsedResume.skills)
+    ? parsedResume.skills
+    : [
+        { id: 'sk-tech',  category: 'Technical',  items: (parsedResume.skills?.technical  || []).join(', ') },
+        { id: 'sk-tools', category: 'Tools',       items: (parsedResume.skills?.tools      || []).join(', ') },
+        { id: 'sk-lang',  category: 'Languages',   items: (parsedResume.skills?.languages  || []).join(', ') },
+        { id: 'sk-soft',  category: 'Soft Skills', items: (parsedResume.skills?.soft       || []).join(', ') },
+      ].filter((r) => r.items);
+
+  return {
+    ...parsedResume,
+    skills,
+    projects: (parsedResume.projects || []).map((p) => ({
+      ...p,
+      tech: Array.isArray(p.tech) ? p.tech.join(', ') : (p.tech || ''),
+    })),
+  };
+}
 
 function Resumes() {
   const { user, getToken } = useContext(UserContext);
@@ -42,6 +64,7 @@ function Resumes() {
   const [expandedVersions, setExpandedVersions] = useState({});
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState('');
 
   // Preview modal states
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -83,6 +106,13 @@ function Resumes() {
 
     if (file.size > 5 * 1024 * 1024) {
       alert('File size must be less than 5MB');
+      return;
+    }
+
+    const dupName = resumes.find((r) => r.file_name.toLowerCase() === file.name.toLowerCase());
+    if (dupName) {
+      alert(`A resume named "${file.name}" already exists. Rename your file before uploading.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
@@ -149,27 +179,51 @@ function Resumes() {
   const handleRenameStart = (resume) => {
     setRenamingId(resume.id);
     setRenameValue(resume.file_name.replace(/\.[^/.]+$/, ''));
+    setRenameError('');
   };
 
   const handleRenameCommit = async (resume) => {
     const trimmed = renameValue.trim();
-    setRenamingId(null);
-    if (!trimmed || trimmed === resume.file_name.replace(/\.[^/.]+$/, '')) return;
+    if (!trimmed || trimmed === resume.file_name.replace(/\.[^/.]+$/, '')) {
+      setRenamingId(null);
+      setRenameError('');
+      return;
+    }
     const ext = resume.file_name.match(/\.[^/.]+$/)?.[0] || '';
+    const newName = trimmed + ext;
+    const dup = resumes.find((r) => r.id !== resume.id && r.file_name.toLowerCase() === newName.toLowerCase());
+    if (dup) {
+      setRenameError(`"${newName}" already exists.`);
+      return;
+    }
+    setRenamingId(null);
+    setRenameError('');
     try {
       const token = await getToken();
-      await axios.patch(`${BACKEND_URL}/resumes/${resume.id}`, { file_name: trimmed + ext }, {
+      await axios.patch(`${BACKEND_URL}/resumes/${resume.id}`, { file_name: newName }, {
         headers: { Authorization: `Bearer ${token}` },
       });
       fetchResumes();
     } catch (error) {
       console.error('Error renaming resume:', error);
-      alert('Failed to rename resume. Please try again.');
+      alert(error.response?.data?.error || 'Failed to rename resume. Please try again.');
     }
   };
 
   const handleView = async (resume) => {
     try {
+      if (resume.parsed_resume) {
+        const doc = buildDocx(prepareForDocx(resume.parsed_resume));
+        const blob = await Packer.toBlob(doc);
+        const arrayBuffer = await blob.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setPreviewResume(resume);
+        setPreviewType('docx');
+        setPreviewContent(result.value);
+        setPreviewOpen(true);
+        return;
+      }
+
       const token = await getToken();
       const response = await axios.get(`${BACKEND_URL}/resumes/${resume.id}/download`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -183,9 +237,8 @@ function Resumes() {
       setPreviewType(fileType);
 
       if (fileType === 'pdf') {
-        const url = URL.createObjectURL(blob);
-        setPreviewContent(url);
-      } else if (fileType === 'docx') {
+        setPreviewContent(URL.createObjectURL(blob));
+      } else {
         const arrayBuffer = await blob.arrayBuffer();
         const result = await mammoth.convertToHtml({ arrayBuffer });
         setPreviewContent(result.value);
@@ -200,6 +253,20 @@ function Resumes() {
 
   const handleDownload = async (resume) => {
     try {
+      if (resume.parsed_resume) {
+        const doc = buildDocx(prepareForDocx(resume.parsed_resume));
+        const blob = await Packer.toBlob(doc);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = resume.file_name.replace(/\.[^/.]+$/, '') + '.docx';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const token = await getToken();
       const response = await axios.get(`${BACKEND_URL}/resumes/${resume.id}/download`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -307,17 +374,20 @@ function Resumes() {
                         <Chip label={resume.version_label} size="small" style={{ marginRight: 6 }} />
                       )}
                       {renamingId === resume.id ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={() => handleRenameCommit(resume)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleRenameCommit(resume);
-                            if (e.key === 'Escape') setRenamingId(null);
-                          }}
-                          style={{ fontSize: 'inherit', fontWeight: 'inherit', border: '1px solid #2563eb', borderRadius: 4, padding: '2px 6px', outline: 'none', width: '80%' }}
-                        />
+                        <>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => { setRenameValue(e.target.value); setRenameError(''); }}
+                            onBlur={() => handleRenameCommit(resume)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRenameCommit(resume);
+                              if (e.key === 'Escape') { setRenamingId(null); setRenameError(''); }
+                            }}
+                            style={{ fontSize: 'inherit', fontWeight: 'inherit', border: `1px solid ${renameError ? '#ef4444' : '#2563eb'}`, borderRadius: 4, padding: '2px 6px', outline: 'none', width: '80%' }}
+                          />
+                          {renameError && <div style={{ color: '#ef4444', fontSize: 11, fontWeight: 400, marginTop: 2 }}>{renameError}</div>}
+                        </>
                       ) : (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} className="resume-name-row">
                           {resume.file_name}
