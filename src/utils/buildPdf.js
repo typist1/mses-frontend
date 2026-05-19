@@ -1,15 +1,17 @@
 import pdfMake from 'pdfmake/build/pdfmake';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
 
-pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts;
+pdfMake.vfs = pdfFonts;
 
-const PAGE_MARGIN = 36; // pt (0.5 inch)
-const CONTENT_WIDTH = 612 - 2 * PAGE_MARGIN; // 540pt
+export function getPdfBlob(resume, { fontScale = 1, margins = 36, lineSpacing = 1.2, bulletStyle = 'dash', sectionOrder: sectionOrderProp } = {}) {
+  // margins slider is px (16–48); pdfmake uses pt — 1px ≈ 0.75pt
+  const PAGE_MARGIN = Math.round(margins * 0.75);
+  const CONTENT_WIDTH = 612 - 2 * PAGE_MARGIN;
 
-export function getPdfBlob(resume, fontScale = 1) {
   const sz = (n) => Math.round(n * fontScale * 10) / 10;
   const sp = (n) => Math.round(n * fontScale * 10) / 10;
   const GRAY = '#555555';
+  const bulletChar = bulletStyle === 'dot' ? '•' : '–';
 
   const content = [];
 
@@ -69,18 +71,18 @@ export function getPdfBlob(resume, fontScale = 1) {
   }
 
   function italicSub(text) {
-    return { text, italics: true, fontSize: sz(9), color: GRAY, margin: [0, 0, 0, sp(1)] };
+    return { text, italics: true, fontSize: sz(9), color: GRAY, margin: [0, 0, 0, sp(2)] };
   }
 
   function bulletList(bullets) {
     return bullets.filter(Boolean).map((b) => ({
-      text: `\u2013 ${b}`,
+      text: `${bulletChar} ${b}`,
       fontSize: sz(10),
       margin: [8, 0, 0, sp(1)],
     }));
   }
 
-  const sectionOrder = resume.sectionOrder || [
+  const sectionOrder = sectionOrderProp || resume.sectionOrder || [
     'contact', 'summary', 'education', 'experience', 'skills', 'projects', 'certifications', 'honors_awards',
   ];
 
@@ -105,7 +107,7 @@ export function getPdfBlob(resume, fontScale = 1) {
               { text: degreeField, italics: true, fontSize: sz(9), color: GRAY, width: '*' },
               { text: dates, italics: true, fontSize: sz(9), color: GRAY, alignment: 'right', width: 'auto' },
             ],
-            margin: [0, 0, 0, sp(1)],
+            margin: [0, 0, 0, sp(2)],
           });
         }
         if (edu.gpa) content.push(italicSub(`GPA: ${edu.gpa}`));
@@ -181,18 +183,9 @@ export function getPdfBlob(resume, fontScale = 1) {
   const docDef = {
     pageSize: 'LETTER',
     pageMargins: [PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN],
-    defaultStyle: { fontSize: sz(10), lineHeight: 1.2 },
+    defaultStyle: { fontSize: sz(10), lineHeight: lineSpacing },
     content,
   };
 
-  return new Promise((resolve, reject) => {
-    try {
-      pdfMake.createPdf(docDef).getBlob(
-        (blob) => resolve(blob),
-        (err) => reject(err ?? new Error('PDF generation failed')),
-      );
-    } catch (err) {
-      reject(err);
-    }
-  });
+  return pdfMake.createPdf(docDef).getBlob();
 }

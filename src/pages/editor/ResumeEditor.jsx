@@ -375,11 +375,11 @@ export default function ResumeEditor() {
     try {
       await exportPdf(resume, {
         sectionOrder,
-        scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
+        scale: 1,
         filename: resumeName || resume.contact.name || 'resume',
-        getToken,
-        backendUrl: BACKEND_URL,
         format,
+        bulletStyle,
+        fitToOnePage,
       });
     } catch (err) {
       console.error('PDF export error:', err);
