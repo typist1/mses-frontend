@@ -183,7 +183,10 @@ function App() {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await axios.post(`${BACKEND_URL}/file/extractText`, formData);
+      const token = await getToken();
+      const res = await axios.post(`${BACKEND_URL}/file/extractText`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setFileContent(res.data.text);
     } catch (err) {
       console.error('Error extracting text:', err);
@@ -198,7 +201,10 @@ function App() {
     setJobLoading(true);
     setJobDescription('Loading...');
     try {
-      const res = await axios.post(`${BACKEND_URL}/file/extractJobDescription`, { url: jobURL });
+      const token = await getToken();
+      const res = await axios.post(`${BACKEND_URL}/file/extractJobDescription`, { url: jobURL }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setJobDescription(res.data.text || '');
       if (!res.data.text) alert('Error fetching job description. Please paste manually.');
     } catch {

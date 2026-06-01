@@ -113,7 +113,7 @@ export default function SignUpModal({ open, onClose }) {
     const usernameValid = username.trim().length > 0;
     if (!usernameValid) setUsernameError('Username is required.');
     else setUsernameError('');
-    if (!validateEmail() | !validatePassword() | !usernameValid) return;
+    if (!validateEmail() || !validatePassword() || !usernameValid) return;
 
     setIsLoading(true);
     setError('');
@@ -130,7 +130,7 @@ export default function SignUpModal({ open, onClose }) {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!validateEmail() | !validatePassword()) return;
+    if (!validateEmail() || !validatePassword()) return;
 
     setIsLoading(true);
     setError('');

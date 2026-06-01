@@ -119,7 +119,6 @@ export function UserProvider({ children }) {
 const googleAuth = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    console.log('Google auth successful:', result.user);
     return result;
   } catch (error) {
     if (error.code === 'auth/popup-blocked') {

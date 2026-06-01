@@ -95,7 +95,7 @@ function Resumes() {
     if (user) {
       fetchResumes();
     }
-  }, [user]);
+  }, [user, fetchResumes]);
 
   const persistOrder = useCallback(async (groups) => {
     try {
@@ -169,7 +169,7 @@ function Resumes() {
     });
   }, [orderedGroups, search, datePreset]);
 
-  const fetchResumes = async () => {
+  const fetchResumes = useCallback(async () => {
     try {
       setLoading(true);
       const token = await getToken();
@@ -183,7 +183,7 @@ function Resumes() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, getToken]);
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
