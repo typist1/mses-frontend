@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import { auth, googleProvider } from '@/firebase-config';
 import {
   createUserWithEmailAndPassword,
-  onAuthStateChanged,
+  onIdTokenChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
@@ -37,7 +37,7 @@ export function UserProvider({ children }) {
   const skipSyncRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribe = onIdTokenChanged(auth, async (firebaseUser) => {
       if (firebaseUser && !skipSyncRef.current) {
         try {
           const idToken = await firebaseUser.getIdToken();
@@ -143,7 +143,12 @@ const googleAuth = async () => {
   const getToken = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) throw new Error('No authenticated user');
-    return currentUser.getIdToken();
+    try {
+      return await currentUser.getIdToken();
+    } catch (err) {
+      await signOut(auth);
+      throw err;
+    }
   };
 
   const contextValue = {
