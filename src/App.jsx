@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { UserProvider } from '@/common/contexts/UserContext';
 import NavLayout from '@/common/layouts/NavLayout';
 import { PrivateRoute } from '@/common/components/routes/ProtectedRoutes';
@@ -12,6 +13,7 @@ import Analysis from './pages/analysis/Analysis';
 export default function App() {
   return (
     <UserProvider>
+      <Toaster richColors position="top-right" />
       <BrowserRouter>
         <Routes>
           <Route path='/' element={<NavLayout />}>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import axios from 'axios';
+import { toast } from 'sonner';
 import {
   Button, Container, Table, TableBody, TableCell, TableHead, TableRow,
   Chip, CircularProgress, TextField, Select, MenuItem, FormControl,
@@ -10,7 +11,7 @@ import AnalysisResults from '../../common/components/AnalysisResults.jsx';
 import '../../App.css';
 import { UserContext } from '@/common/contexts/UserContext';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+import { BACKEND_URL } from '@/utils/constants';
 
 const DATE_PRESETS = [
   { value: 'all', label: 'All time' },
@@ -76,7 +77,7 @@ function Analysis() {
       });
       setViewingItem(data);
     } catch {
-      alert('Failed to load analysis');
+      toast.error('Failed to load analysis');
     } finally {
       setViewingLoading(false);
     }

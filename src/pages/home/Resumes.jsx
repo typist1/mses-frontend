@@ -34,11 +34,12 @@ import {
   Search,
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
+import { toast } from 'sonner';
 import { buildDocx, Packer } from '@/utils/buildDocx';
 import { UserContext } from '@/common/contexts/UserContext';
 import './Resumes.css';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+import { BACKEND_URL } from '@/utils/constants';
 
 const DATE_PRESETS = [
   { value: 'all', label: 'All time' },
@@ -90,6 +91,22 @@ function Resumes() {
   const [previewResume, setPreviewResume] = useState(null);
   const [previewContent, setPreviewContent] = useState('');
   const [previewType, setPreviewType] = useState('');
+
+  const fetchResumes = useCallback(async () => {
+    try {
+      setLoading(true);
+      const token = await getToken();
+      const response = await axios.get(`${BACKEND_URL}/resumes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setResumes(response.data.resumes || []);
+    } catch (error) {
+      console.error('Error fetching resumes:', error);
+      toast.error('Failed to load resumes. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user, getToken]);
 
   useEffect(() => {
     if (user) {
@@ -169,40 +186,24 @@ function Resumes() {
     });
   }, [orderedGroups, search, datePreset]);
 
-  const fetchResumes = useCallback(async () => {
-    try {
-      setLoading(true);
-      const token = await getToken();
-      const response = await axios.get(`${BACKEND_URL}/resumes`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setResumes(response.data.resumes || []);
-    } catch (error) {
-      console.error('Error fetching resumes:', error);
-      alert('Failed to load resumes. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, getToken]);
-
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (file.type !== 'application/pdf' &&
       file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      alert('Please upload either a PDF or DOCX file');
+      toast.error('Please upload either a PDF or DOCX file');
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB');
+      toast.error('File size must be less than 5MB');
       return;
     }
 
     const dupName = resumes.find((r) => r.file_name.toLowerCase() === file.name.toLowerCase());
     if (dupName) {
-      alert(`A resume named "${file.name}" already exists. Rename your file before uploading.`);
+      toast.error(`A resume named "${file.name}" already exists. Rename your file before uploading.`);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -221,7 +222,7 @@ function Resumes() {
       });
 
       pendingTopIdRef.current = uploadResponse.data.resume?.id;
-      alert('Resume uploaded successfully!');
+      toast.success('Resume uploaded successfully!');
       fetchResumes();
 
       if (fileInputRef.current) {
@@ -229,7 +230,7 @@ function Resumes() {
       }
     } catch (error) {
       console.error('Error uploading resume:', error);
-      alert(error.response?.data?.error || 'Failed to upload resume. Please try again.');
+      toast.error(error.response?.data?.error || 'Failed to upload resume. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -246,11 +247,11 @@ function Resumes() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      alert('Resume deleted successfully!');
+      toast.success('Resume deleted successfully!');
       fetchResumes();
     } catch (error) {
       console.error('Error deleting resume:', error);
-      alert('Failed to delete resume. Please try again.');
+      toast.error('Failed to delete resume. Please try again.');
     }
   };
 
@@ -266,7 +267,7 @@ function Resumes() {
       fetchResumes();
     } catch (error) {
       console.error('Error setting active resume:', error);
-      alert('Failed to set active resume. Please try again.');
+      toast.error('Failed to set active resume. Please try again.');
     }
   };
 
@@ -302,7 +303,7 @@ function Resumes() {
       fetchResumes();
     } catch (error) {
       console.error('Error renaming resume:', error);
-      alert(error.response?.data?.error || 'Failed to rename resume. Please try again.');
+      toast.error(error.response?.data?.error || 'Failed to rename resume. Please try again.');
     }
   };
 
@@ -343,7 +344,7 @@ function Resumes() {
       setPreviewOpen(true);
     } catch (error) {
       console.error('Error viewing resume:', error);
-      alert('Failed to load resume preview. Please try again.');
+      toast.error('Failed to load resume preview. Please try again.');
     }
   };
 
@@ -379,7 +380,7 @@ function Resumes() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading resume:', error);
-      alert('Failed to download resume. Please try again.');
+      toast.error('Failed to download resume. Please try again.');
     }
   };
 

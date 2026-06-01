@@ -1,4 +1,5 @@
 import SignUpModal from "@/pages/account/SignUp"
+import { toast } from 'sonner';
 import {
   Button,
   Container,
@@ -39,7 +40,7 @@ function NavBar({ children }) {
       window.location.href = '/';
     } catch (error) {
       console.error('Logout error:', error);
-      alert('Failed to log out. Please try again.');
+      toast.error('Failed to log out. Please try again.');
     }
   };
 

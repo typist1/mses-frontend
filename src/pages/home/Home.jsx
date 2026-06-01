@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import mammoth from 'mammoth';
 import axios from 'axios';
+import { toast } from 'sonner';
 import {
   Button, Container, TextField, Tooltip, IconButton, CircularProgress,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -14,7 +15,7 @@ import AnalysisResults from '../../common/components/AnalysisResults.jsx';
 import '../../App.css';
 import { UserContext } from '@/common/contexts/UserContext';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+import { BACKEND_URL } from '@/utils/constants';
 const ANALYSIS_CACHE_KEY = 'mses_analysis_cache';
 
 const PHASES = [
@@ -96,7 +97,7 @@ function App() {
       const result = await mammoth.convertToHtml({ arrayBuffer });
       setFilePreview(result.value);
     } else {
-      alert('Please upload either a PDF or DOCX file');
+      toast.error('Please upload either a PDF or DOCX file');
       return;
     }
     handleExtractText(file);
@@ -175,7 +176,7 @@ function App() {
       setActiveResumeFileName(resume.file_name);
     } catch (err) {
       console.error('Error loading stored resume:', err);
-      alert('Failed to load resume. Please try again.');
+      toast.error('Failed to load resume. Please try again.');
     }
   };
 
@@ -197,7 +198,7 @@ function App() {
     jobURL.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_+.~#?&//=]*)/g) !== null;
 
   const handleFetchJobDescription = async () => {
-    if (!isURLValid()) { alert('Please enter a valid URL'); return; }
+    if (!isURLValid()) { toast.error('Please enter a valid URL'); return; }
     setJobLoading(true);
     setJobDescription('Loading...');
     try {
@@ -206,10 +207,10 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setJobDescription(res.data.text || '');
-      if (!res.data.text) alert('Error fetching job description. Please paste manually.');
+      if (!res.data.text) toast.error('Error fetching job description. Please paste manually.');
     } catch {
       setJobDescription('');
-      alert('Failed to fetch job description. Please paste it manually.');
+      toast.error('Failed to fetch job description. Please paste it manually.');
     } finally {
       setJobLoading(false);
     }
@@ -243,7 +244,7 @@ function App() {
         localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ analysisResult: data, changeLogAccepted: accepted, analysisSaved: false, savedResumeId: null }));
       } catch {}
     } catch (err) {
-      alert(err.response?.data?.error || 'Analysis failed. Please try again.');
+      toast.error(err.response?.data?.error || 'Analysis failed. Please try again.');
     } finally {
       clearInterval(timer);
       setIsOptimizing(false);

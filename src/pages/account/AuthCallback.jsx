@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 
 import { auth } from '@/firebase-config';
+import { BACKEND_URL } from '@/utils/constants';
 
 const Container = styled.div`
   display: flex;
@@ -36,7 +37,7 @@ export default function AuthCallback() {
         const idToken = await result.user.getIdToken();
 
         const response = await fetch(
-          `${import.meta.env.VITE_BACKEND_URL}/auth/token`,
+          `${BACKEND_URL}/auth/token`,
           {
             method: 'POST',
             credentials: 'include',

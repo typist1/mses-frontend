@@ -3,13 +3,14 @@ import { useNavigate, useLocation, useParams, Navigate } from 'react-router-dom'
 import { Button, IconButton, CircularProgress } from '@mui/material';
 import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
+import { toast } from 'sonner';
 import { buildDocx, Packer } from '@/utils/buildDocx';
 import { getPdfBlob } from '@/utils/buildPdf';
 import { exportPdf, exportDocx } from '@/common/functions/exportFile';
 import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+import { BACKEND_URL } from '@/utils/constants';
 const PAPER_WIDTH = 816;
 const PAPER_HEIGHT = 1056;
 const newId = () => crypto.randomUUID();
@@ -291,7 +292,7 @@ export default function ResumeEditor() {
         }
       } catch (err) {
         console.error('Failed to load resume for editor:', err);
-        alert('Could not load this resume. It may have been deleted.');
+        toast.error('Could not load this resume. It may have been deleted.');
         navigate('/resumes', { replace: true });
       } finally {
         setLoadingResume(false);
@@ -383,7 +384,7 @@ export default function ResumeEditor() {
       });
     } catch (err) {
       console.error('PDF export error:', err);
-      alert('Failed to export PDF. Please try again.');
+      toast.error('Failed to export PDF. Please try again.');
     } finally {
       setExporting(false);
     }
@@ -400,7 +401,7 @@ export default function ResumeEditor() {
       });
     } catch (err) {
       console.error('DOCX export error:', err);
-      alert('Failed to export DOCX. Please try again.');
+      toast.error('Failed to export DOCX. Please try again.');
     } finally {
       setExportingDocx(false);
     }
@@ -408,7 +409,7 @@ export default function ResumeEditor() {
 
   const handleSaveToResumes = async () => {
     if (!resumeId) {
-      alert('No resume linked. Use Export to download your changes.');
+      toast.error('No resume linked. Use Export to download your changes.');
       return;
     }
     setSaving(true);
@@ -428,11 +429,11 @@ export default function ResumeEditor() {
         { parsed_resume: parsedForSave, file_name: resumeName + resumeExt },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      alert('Saved changes');
+      toast.success('Saved changes');
       localStorage.setItem('resumeJustEdited', resumeId);
     } catch (err) {
       console.error('Save error:', err);
-      alert(err.response?.data?.error || 'Failed to save resume. Please try again.');
+      toast.error(err.response?.data?.error || 'Failed to save resume. Please try again.');
     } finally {
       setSaving(false);
     }

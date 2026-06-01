@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import { toast } from 'sonner';
+import { BACKEND_URL } from '@/utils/constants';
 
 import { auth, googleProvider } from '@/firebase-config';
 import {
@@ -29,7 +31,7 @@ UserProvider.propTypes = {
 };
 
 const buildUrl = (endpoint) =>
-  `${import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '')}${endpoint}`;
+  `${BACKEND_URL.replace(/\/$/, '')}${endpoint}`;
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -122,7 +124,7 @@ const googleAuth = async () => {
     return result;
   } catch (error) {
     if (error.code === 'auth/popup-blocked') {
-      alert('Popup was blocked. Please allow popups for this site.');
+      toast.error('Popup was blocked. Please allow popups for this site.');
     }
     console.error('Google auth error:', error);
     throw error;

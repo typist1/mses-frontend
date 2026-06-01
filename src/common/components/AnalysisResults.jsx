@@ -2,6 +2,7 @@ import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import { toast } from 'sonner';
 import {
   Table, TableHead, TableRow, TableCell, TableBody,
   Chip, Collapse, Tooltip, IconButton, Alert, Button, Menu, MenuItem,
@@ -16,7 +17,7 @@ import { buildDocx, Packer } from '../../utils/buildDocx.js';
 import { exportPdf, exportDocx } from '../functions/exportFile.js';
 import { UserContext } from '@/common/contexts/UserContext';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+import { BACKEND_URL } from '@/utils/constants';
 const COURSE_MAP = Object.fromEntries(COURSES.map((c) => [c.c, c]));
 
 export function fitLabel(score) {
@@ -440,7 +441,7 @@ export default function AnalysisResults({
       });
     } catch (err) {
       console.error('Export PDF error:', err);
-      alert('Failed to export PDF. Please try again.');
+      toast.error('Failed to export PDF. Please try again.');
     }
   };
 
@@ -453,7 +454,7 @@ export default function AnalysisResults({
       });
     } catch (err) {
       console.error('Export DOCX error:', err);
-      alert('Failed to export DOCX. Please try again.');
+      toast.error('Failed to export DOCX. Please try again.');
     }
   };
 
@@ -501,10 +502,10 @@ export default function AnalysisResults({
       setSaveModalOpen(false);
       setSaveResumeFileName('');
       if (onSaved) onSaved({ resumeId: newResumeId });
-      alert('Resume saved successfully!');
+      toast.success('Resume saved successfully!');
     } catch (err) {
       console.error('Save resume error:', err);
-      alert(err.response?.data?.error || 'Failed to save resume. Please try again.');
+      toast.error(err.response?.data?.error || 'Failed to save resume. Please try again.');
     } finally {
       setSavingResume(false);
     }
@@ -517,7 +518,7 @@ export default function AnalysisResults({
     if (rid) {
       navigate(`/editor/${rid}`);
     } else {
-      alert('No resume linked to this analysis. The analysis must have been run with a saved resume to open in the editor.');
+      toast.error('No resume linked to this analysis. The analysis must have been run with a saved resume to open in the editor.');
     }
   };
 
