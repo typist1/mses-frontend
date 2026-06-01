@@ -425,10 +425,11 @@ export default function ResumeEditor() {
       };
       await axios.patch(
         `${BACKEND_URL}/resumes/${resumeId}`,
-        { parsed_resume: parsedForSave },
+        { parsed_resume: parsedForSave, file_name: resumeName + resumeExt },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       alert('Saved changes');
+      localStorage.setItem('resumeJustEdited', resumeId);
     } catch (err) {
       console.error('Save error:', err);
       alert(err.response?.data?.error || 'Failed to save resume. Please try again.');

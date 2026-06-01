@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -12,6 +12,13 @@ import {
   CircularProgress,
   Chip,
   Tooltip,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  InputAdornment,
+  Box,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -24,6 +31,7 @@ import {
   Close,
   ExpandMore,
   ExpandLess,
+  Search,
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
 import { buildDocx, Packer } from '@/utils/buildDocx';
@@ -31,6 +39,13 @@ import { UserContext } from '@/common/contexts/UserContext';
 import './Resumes.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+
+const DATE_PRESETS = [
+  { value: 'all', label: 'All time' },
+  { value: '7d', label: 'Last 7 days' },
+  { value: '30d', label: 'Last 30 days' },
+  { value: '3m', label: 'Last 3 months' },
+];
 
 // Converts DB-format parsed_resume → buildDocx-compatible format
 function prepareForDocx(parsedResume) {
@@ -57,14 +72,18 @@ function Resumes() {
   const { user, getToken } = useContext(UserContext);
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
+  const pendingTopIdRef = useRef(null);
 
   const [resumes, setResumes] = useState([]);
+  const [orderedGroups, setOrderedGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [expandedVersions, setExpandedVersions] = useState({});
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const [renameError, setRenameError] = useState('');
+  const [search, setSearch] = useState('');
+  const [datePreset, setDatePreset] = useState('all');
 
   // Preview modal states
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -77,6 +96,78 @@ function Resumes() {
       fetchResumes();
     }
   }, [user]);
+
+  const persistOrder = useCallback(async (groups) => {
+    try {
+      const token = await getToken();
+      await axios.put(`${BACKEND_URL}/resumes/reorder`, {
+        items: groups.map((g, i) => ({ id: g.id, sort_order: i })),
+      }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (err) {
+      console.error('Error persisting resume order:', err);
+    }
+  }, [getToken]);
+
+  const moveGroupToTop = useCallback((rootId) => {
+    setOrderedGroups((prev) => {
+      const idx = prev.findIndex((r) => r.id === rootId);
+      if (idx <= 0) return prev;
+      const newOrder = [prev[idx], ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      persistOrder(newOrder);
+      return newOrder;
+    });
+  }, [persistOrder]);
+
+  useEffect(() => {
+    let groups = resumes.filter((r) => !r.parent_resume_id);
+    let topId = pendingTopIdRef.current;
+    pendingTopIdRef.current = null;
+    if (!topId) {
+      topId = localStorage.getItem('resumeJustEdited');
+    }
+    if (topId) {
+      const idx = groups.findIndex((r) => r.id === topId);
+      if (idx > 0) {
+        localStorage.removeItem('resumeJustEdited');
+        const newOrder = [groups[idx], ...groups.slice(0, idx), ...groups.slice(idx + 1)];
+        persistOrder(newOrder);
+        setOrderedGroups(newOrder);
+        return;
+      } else if (idx === 0) {
+        localStorage.removeItem('resumeJustEdited');
+      }
+    }
+    // Preserve current order on data refresh; use server order only on initial load
+    setOrderedGroups((prev) => {
+      if (prev.length === 0) return groups;
+      const groupById = Object.fromEntries(groups.map((g) => [g.id, g]));
+      const preserved = prev.filter((r) => groupById[r.id]).map((r) => groupById[r.id]);
+      const prevIds = new Set(prev.map((r) => r.id));
+      const newGroups = groups.filter((g) => !prevIds.has(g.id));
+      return [...preserved, ...newGroups];
+    });
+  }, [resumes, persistOrder]);
+
+  const versionMap = useMemo(() => {
+    const map = {};
+    resumes.filter((r) => r.parent_resume_id).forEach((r) => {
+      if (!map[r.parent_resume_id]) map[r.parent_resume_id] = [];
+      map[r.parent_resume_id].push(r);
+    });
+    return map;
+  }, [resumes]);
+
+  const filteredGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const cutoffDays = { '7d': 7, '30d': 30, '3m': 90 };
+    const days = cutoffDays[datePreset];
+    const cutoff = days ? new Date(Date.now() - days * 86400000) : null;
+    return orderedGroups.filter((r) => {
+      if (q && !r.file_name.toLowerCase().includes(q)) return false;
+      if (cutoff && new Date(r.created_at) < cutoff) return false;
+      return true;
+    });
+  }, [orderedGroups, search, datePreset]);
 
   const fetchResumes = async () => {
     try {
@@ -122,13 +213,14 @@ function Resumes() {
     try {
       setUploading(true);
       const token = await getToken();
-      await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
+      const uploadResponse = await axios.post(`${BACKEND_URL}/resumes/upload`, formData, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'multipart/form-data',
         },
       });
 
+      pendingTopIdRef.current = uploadResponse.data.resume?.id;
       alert('Resume uploaded successfully!');
       fetchResumes();
 
@@ -169,6 +261,8 @@ function Resumes() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      const resume = resumes.find((r) => r.id === resumeId);
+      pendingTopIdRef.current = resume?.parent_resume_id || resumeId;
       fetchResumes();
     } catch (error) {
       console.error('Error setting active resume:', error);
@@ -203,6 +297,8 @@ function Resumes() {
       await axios.patch(`${BACKEND_URL}/resumes/${resume.id}`, { file_name: newName }, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      const rootId = resume.parent_resume_id || resume.id;
+      moveGroupToTop(rootId);
       fetchResumes();
     } catch (error) {
       console.error('Error renaming resume:', error);
@@ -314,9 +410,110 @@ function Resumes() {
     });
   };
 
+  const ResumeCard = ({ resume, isVersion }) => (
+    <Card
+      className={`resume-card ${resume.is_active ? 'active' : ''}`}
+      style={isVersion ? { marginLeft: 24, marginTop: 8, borderLeft: '3px solid #e5e7eb' } : {}}
+    >
+      <CardContent>
+        <div className="resume-card-header">
+          <div className="resume-info">
+            <h3>
+              {resume.version_label && (
+                <Chip label={resume.version_label} size="small" style={{ marginRight: 6 }} />
+              )}
+              {renamingId === resume.id ? (
+                <>
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => { setRenameValue(e.target.value); setRenameError(''); }}
+                    onBlur={() => handleRenameCommit(resume)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameCommit(resume);
+                      if (e.key === 'Escape') { setRenamingId(null); setRenameError(''); }
+                    }}
+                    style={{ fontSize: 'inherit', fontWeight: 'inherit', border: `1px solid ${renameError ? '#ef4444' : '#2563eb'}`, borderRadius: 4, padding: '2px 6px', outline: 'none', width: '80%' }}
+                  />
+                  {renameError && <div style={{ color: '#ef4444', fontSize: 11, fontWeight: 400, marginTop: 2 }}>{renameError}</div>}
+                </>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} className="resume-name-row">
+                  {resume.file_name}
+                  <IconButton
+                    size="small"
+                    onClick={() => handleRenameStart(resume)}
+                    title="Rename"
+                    className="rename-btn"
+                    style={{ padding: 2, opacity: 0, transition: 'opacity 0.15s' }}
+                  >
+                    <Edit style={{ fontSize: 14 }} />
+                  </IconButton>
+                </span>
+              )}
+            </h3>
+            <div className="resume-meta">
+              <span>{formatFileSize(resume.file_size)}</span>
+              <span>•</span>
+              <span>{formatDate(resume.created_at)}</span>
+            </div>
+          </div>
+          {resume.is_active && <Chip label="Active" color="success" size="small" className="active-chip" />}
+        </div>
+        <div className="resume-actions">
+          <Tooltip title={resume.is_active ? 'Active resume' : 'Set as active'}>
+            <IconButton onClick={() => handleSetActive(resume.id)} disabled={resume.is_active} className="icon-btn">
+              {resume.is_active ? <Star color="warning" /> : <StarBorder />}
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton onClick={() => navigate(`/editor/${resume.id}`)} className="icon-btn">
+              <Edit />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="View">
+            <IconButton onClick={() => handleView(resume)} className="icon-btn"><Visibility /></IconButton>
+          </Tooltip>
+          <Tooltip title="Download">
+            <IconButton onClick={() => handleDownload(resume)} className="icon-btn"><Download /></IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton onClick={() => handleDelete(resume.id, resume.file_name)} className="icon-btn icon-btn-danger">
+              <Delete />
+            </IconButton>
+          </Tooltip>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderGroup = (resume) => {
+    const versions = versionMap[resume.id] || [];
+    const isExpanded = expandedVersions[resume.id];
+    return (
+      <>
+        <ResumeCard resume={resume} isVersion={false} />
+        {versions.length > 0 && (
+          <>
+            <div
+              style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', cursor: 'pointer', color: '#6b7280', fontSize: 13 }}
+              onClick={() => setExpandedVersions((prev) => ({ ...prev, [resume.id]: !prev[resume.id] }))}
+            >
+              {isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+              {versions.length} version{versions.length > 1 ? 's' : ''}
+            </div>
+            {isExpanded && versions.map((v) => (
+              <ResumeCard key={v.id} resume={v} isVersion />
+            ))}
+          </>
+        )}
+      </>
+    );
+  };
+
   return (
     <div>
-    <Container maxWidth="lg" className="main-container">
+      <Container maxWidth="lg" className="main-container">
         <div className="resumes-header">
           <div>
             <h1>My Resumes</h1>
@@ -352,120 +549,49 @@ function Resumes() {
             <h2>No resumes yet</h2>
             <p>Upload your first resume to get started</p>
           </div>
-        ) : (() => {
-          const roots = resumes.filter((r) => !r.parent_resume_id);
-          const versionMap = {};
-          resumes.filter((r) => r.parent_resume_id).forEach((r) => {
-            if (!versionMap[r.parent_resume_id]) versionMap[r.parent_resume_id] = [];
-            versionMap[r.parent_resume_id].push(r);
-          });
-
-          const ResumeCard = ({ resume, isVersion }) => (
-            <Card
-              key={resume.id}
-              className={`resume-card ${resume.is_active ? 'active' : ''}`}
-              style={isVersion ? { marginLeft: 24, marginTop: 8, borderLeft: '3px solid #e5e7eb' } : {}}
-            >
-              <CardContent>
-                <div className="resume-card-header">
-                  <div className="resume-info">
-                    <h3>
-                      {resume.version_label && (
-                        <Chip label={resume.version_label} size="small" style={{ marginRight: 6 }} />
-                      )}
-                      {renamingId === resume.id ? (
-                        <>
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => { setRenameValue(e.target.value); setRenameError(''); }}
-                            onBlur={() => handleRenameCommit(resume)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleRenameCommit(resume);
-                              if (e.key === 'Escape') { setRenamingId(null); setRenameError(''); }
-                            }}
-                            style={{ fontSize: 'inherit', fontWeight: 'inherit', border: `1px solid ${renameError ? '#ef4444' : '#2563eb'}`, borderRadius: 4, padding: '2px 6px', outline: 'none', width: '80%' }}
-                          />
-                          {renameError && <div style={{ color: '#ef4444', fontSize: 11, fontWeight: 400, marginTop: 2 }}>{renameError}</div>}
-                        </>
-                      ) : (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} className="resume-name-row">
-                          {resume.file_name}
-                          <IconButton
-                            size="small"
-                            onClick={() => handleRenameStart(resume)}
-                            title="Rename"
-                            className="rename-btn"
-                            style={{ padding: 2, opacity: 0, transition: 'opacity 0.15s' }}
-                          >
-                            <Edit style={{ fontSize: 14 }} />
-                          </IconButton>
-                        </span>
-                      )}
-                    </h3>
-                    <div className="resume-meta">
-                      <span>{formatFileSize(resume.file_size)}</span>
-                      <span>•</span>
-                      <span>{formatDate(resume.created_at)}</span>
-                    </div>
-                  </div>
-                  {resume.is_active && <Chip label="Active" color="success" size="small" className="active-chip" />}
-                </div>
-                <div className="resume-actions">
-                  <Tooltip title={resume.is_active ? 'Active resume' : 'Set as active'}>
-                    <IconButton onClick={() => handleSetActive(resume.id)} disabled={resume.is_active} className="icon-btn">
-                      {resume.is_active ? <Star color="warning" /> : <StarBorder />}
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Edit">
-                    <IconButton onClick={() => navigate(`/editor/${resume.id}`)} className="icon-btn">
-                      <Edit />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="View">
-                    <IconButton onClick={() => handleView(resume)} className="icon-btn"><Visibility /></IconButton>
-                  </Tooltip>
-                  <Tooltip title="Download">
-                    <IconButton onClick={() => handleDownload(resume)} className="icon-btn"><Download /></IconButton>
-                  </Tooltip>
-                  <Tooltip title="Delete">
-                    <IconButton onClick={() => handleDelete(resume.id, resume.file_name)} className="icon-btn icon-btn-danger">
-                      <Delete />
-                    </IconButton>
-                  </Tooltip>
-                </div>
-              </CardContent>
-            </Card>
-          );
-
-          return (
-            <div className="resumes-grid">
-              {roots.map((resume) => {
-                const versions = versionMap[resume.id] || [];
-                const isExpanded = expandedVersions[resume.id];
-                return (
-                  <div key={resume.id}>
-                    <ResumeCard resume={resume} isVersion={false} />
-                    {versions.length > 0 && (
-                      <>
-                        <div
-                          style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', cursor: 'pointer', color: '#6b7280', fontSize: 13 }}
-                          onClick={() => setExpandedVersions((prev) => ({ ...prev, [resume.id]: !prev[resume.id] }))}
-                        >
-                          {isExpanded ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
-                          {versions.length} version{versions.length > 1 ? 's' : ''}
-                        </div>
-                        {isExpanded && versions.map((v) => (
-                          <ResumeCard key={v.id} resume={v} isVersion />
-                        ))}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+        ) : (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+              Filters
             </div>
-          );
-        })()}
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
+              <TextField
+                size="small"
+                placeholder="Search by resume name…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search fontSize="small" sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ minWidth: 240 }}
+              />
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Date</InputLabel>
+                <Select value={datePreset} label="Date" onChange={(e) => setDatePreset(e.target.value)}>
+                  {DATE_PRESETS.map((p) => (
+                    <MenuItem key={p.value} value={p.value}>{p.label}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+
+            <div className="resumes-grid">
+              {filteredGroups.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '32px 0', color: '#9ca3af' }}>
+                  No resumes match your search.
+                </div>
+              ) : filteredGroups.map((resume) => (
+                <div key={resume.id}>
+                  {renderGroup(resume)}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </Container>
 
       <Dialog
@@ -483,21 +609,21 @@ function Resumes() {
         </div>
         <DialogContent className="preview-dialog-content">
           {previewType === 'pdf' && (
-            <iframe 
-              src={previewContent} 
-              className="pdf-preview-modal" 
-              title="Resume preview" 
+            <iframe
+              src={previewContent}
+              className="pdf-preview-modal"
+              title="Resume preview"
             />
           )}
           {previewType === 'docx' && (
-            <div 
-              className="docx-preview-modal" 
-              dangerouslySetInnerHTML={{ __html: previewContent }} 
+            <div
+              className="docx-preview-modal"
+              dangerouslySetInnerHTML={{ __html: previewContent }}
             />
           )}
         </DialogContent>
       </Dialog>
-    </div >
+    </div>
   );
 }
 
