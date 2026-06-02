@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useContext } from 'react';
 import mammoth from 'mammoth';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { useSnackbar } from '@/common/contexts/SnackbarContext';
 import {
   Button, Container, TextField, Tooltip, IconButton, CircularProgress,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -29,6 +29,7 @@ const PHASES = [
 
 function App() {
   const { user, getToken } = useContext(UserContext);
+  const showSnackbar = useSnackbar();
   const fileInputRef = useRef(null);
   const userInteractedRef = useRef(false);
 
@@ -97,7 +98,7 @@ function App() {
       const result = await mammoth.convertToHtml({ arrayBuffer });
       setFilePreview(result.value);
     } else {
-      toast.error('Please upload either a PDF or DOCX file');
+      showSnackbar('Please upload either a PDF or DOCX file', 'error');
       return;
     }
     handleExtractText(file);
@@ -176,7 +177,7 @@ function App() {
       setActiveResumeFileName(resume.file_name);
     } catch (err) {
       console.error('Error loading stored resume:', err);
-      toast.error('Failed to load resume. Please try again.');
+      showSnackbar('Failed to load resume. Please try again.', 'error');
     }
   };
 
@@ -198,7 +199,7 @@ function App() {
     jobURL.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_+.~#?&//=]*)/g) !== null;
 
   const handleFetchJobDescription = async () => {
-    if (!isURLValid()) { toast.error('Please enter a valid URL'); return; }
+    if (!isURLValid()) { showSnackbar('Please enter a valid URL', 'error'); return; }
     setJobLoading(true);
     setJobDescription('Loading...');
     try {
@@ -207,10 +208,10 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setJobDescription(res.data.text || '');
-      if (!res.data.text) toast.error('Error fetching job description. Please paste manually.');
+      if (!res.data.text) showSnackbar('Error fetching job description. Please paste manually.', 'error');
     } catch {
       setJobDescription('');
-      toast.error('Failed to fetch job description. Please paste it manually.');
+      showSnackbar('Failed to fetch job description. Please paste it manually.', 'error');
     } finally {
       setJobLoading(false);
     }
@@ -244,7 +245,7 @@ function App() {
         localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ analysisResult: data, changeLogAccepted: accepted, analysisSaved: false, savedResumeId: null }));
       } catch {}
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Analysis failed. Please try again.');
+      showSnackbar(err.response?.data?.error || 'Analysis failed. Please try again.', 'error');
     } finally {
       clearInterval(timer);
       setIsOptimizing(false);

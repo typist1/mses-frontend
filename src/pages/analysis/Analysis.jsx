@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { useSnackbar } from '@/common/contexts/SnackbarContext';
 import {
   Button, Container, Table, TableBody, TableCell, TableHead, TableRow,
   Chip, CircularProgress, TextField, Select, MenuItem, FormControl,
@@ -22,6 +22,7 @@ const DATE_PRESETS = [
 
 function Analysis() {
   const { getToken } = useContext(UserContext);
+  const showSnackbar = useSnackbar();
 
   const [historyList, setHistoryList] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -77,7 +78,7 @@ function Analysis() {
       });
       setViewingItem(data);
     } catch {
-      toast.error('Failed to load analysis');
+      showSnackbar('Failed to load analysis', 'error');
     } finally {
       setViewingLoading(false);
     }

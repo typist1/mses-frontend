@@ -34,7 +34,7 @@ import {
   Search,
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
-import { toast } from 'sonner';
+import { useSnackbar } from '@/common/contexts/SnackbarContext';
 import { buildDocx, Packer } from '@/utils/buildDocx';
 import { UserContext } from '@/common/contexts/UserContext';
 import './Resumes.css';
@@ -71,6 +71,7 @@ function prepareForDocx(parsedResume) {
 
 function Resumes() {
   const { user, getToken } = useContext(UserContext);
+  const showSnackbar = useSnackbar();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const pendingTopIdRef = useRef(null);
@@ -102,7 +103,7 @@ function Resumes() {
       setResumes(response.data.resumes || []);
     } catch (error) {
       console.error('Error fetching resumes:', error);
-      toast.error('Failed to load resumes. Please try again.');
+      showSnackbar('Failed to load resumes. Please try again.', 'error');
     } finally {
       setLoading(false);
     }
@@ -192,18 +193,18 @@ function Resumes() {
 
     if (file.type !== 'application/pdf' &&
       file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      toast.error('Please upload either a PDF or DOCX file');
+      showSnackbar('Please upload either a PDF or DOCX file', 'error');
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size must be less than 5MB');
+      showSnackbar('File size must be less than 5MB', 'error');
       return;
     }
 
     const dupName = resumes.find((r) => r.file_name.toLowerCase() === file.name.toLowerCase());
     if (dupName) {
-      toast.error(`A resume named "${file.name}" already exists. Rename your file before uploading.`);
+      showSnackbar(`A resume named "${file.name}" already exists. Rename your file before uploading.`, 'error');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -222,7 +223,7 @@ function Resumes() {
       });
 
       pendingTopIdRef.current = uploadResponse.data.resume?.id;
-      toast.success('Resume uploaded successfully!');
+      showSnackbar('Resume uploaded', 'success');
       fetchResumes();
 
       if (fileInputRef.current) {
@@ -230,7 +231,7 @@ function Resumes() {
       }
     } catch (error) {
       console.error('Error uploading resume:', error);
-      toast.error(error.response?.data?.error || 'Failed to upload resume. Please try again.');
+      showSnackbar(error.response?.data?.error || 'Failed to upload resume. Please try again.', 'error');
     } finally {
       setUploading(false);
     }
@@ -247,11 +248,11 @@ function Resumes() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      toast.success('Resume deleted successfully!');
+      showSnackbar('Resume deleted', 'success');
       fetchResumes();
     } catch (error) {
       console.error('Error deleting resume:', error);
-      toast.error('Failed to delete resume. Please try again.');
+      showSnackbar('Failed to delete resume. Please try again.', 'error');
     }
   };
 
@@ -267,7 +268,7 @@ function Resumes() {
       fetchResumes();
     } catch (error) {
       console.error('Error setting active resume:', error);
-      toast.error('Failed to set active resume. Please try again.');
+      showSnackbar('Failed to set active resume. Please try again.', 'error');
     }
   };
 
@@ -303,7 +304,7 @@ function Resumes() {
       fetchResumes();
     } catch (error) {
       console.error('Error renaming resume:', error);
-      toast.error(error.response?.data?.error || 'Failed to rename resume. Please try again.');
+      showSnackbar(error.response?.data?.error || 'Failed to rename resume. Please try again.', 'error');
     }
   };
 
@@ -344,7 +345,7 @@ function Resumes() {
       setPreviewOpen(true);
     } catch (error) {
       console.error('Error viewing resume:', error);
-      toast.error('Failed to load resume preview. Please try again.');
+      showSnackbar('Failed to load resume preview. Please try again.', 'error');
     }
   };
 
@@ -380,7 +381,7 @@ function Resumes() {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error downloading resume:', error);
-      toast.error('Failed to download resume. Please try again.');
+      showSnackbar('Failed to download resume. Please try again.', 'error');
     }
   };
 

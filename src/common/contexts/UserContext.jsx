@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { toast } from 'sonner';
+import { useSnackbar } from '@/common/contexts/SnackbarContext';
 import { BACKEND_URL } from '@/utils/constants';
 
 import { auth, googleProvider } from '@/firebase-config';
@@ -34,6 +34,7 @@ const buildUrl = (endpoint) =>
   `${BACKEND_URL.replace(/\/$/, '')}${endpoint}`;
 
 export function UserProvider({ children }) {
+  const showSnackbar = useSnackbar();
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const skipSyncRef = useRef(false);
@@ -124,7 +125,7 @@ const googleAuth = async () => {
     return result;
   } catch (error) {
     if (error.code === 'auth/popup-blocked') {
-      toast.error('Popup was blocked. Please allow popups for this site.');
+      showSnackbar('Popup was blocked. Please allow popups for this site.', 'error');
     }
     console.error('Google auth error:', error);
     throw error;

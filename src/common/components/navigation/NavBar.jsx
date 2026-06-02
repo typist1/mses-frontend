@@ -1,5 +1,5 @@
 import SignUpModal from "@/pages/account/SignUp"
-import { toast } from 'sonner';
+import { useSnackbar } from '@/common/contexts/SnackbarContext';
 import {
   Button,
   Container,
@@ -13,6 +13,7 @@ import nuLogo from "../../../assets/nuLogo.svg"
 import { UserContext } from "@/common/contexts/UserContext";
 
 function NavBar({ children }) {
+  const showSnackbar = useSnackbar();
   const [signupOpen, setSignupOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { user, isLoading, logout } = useContext(UserContext);
@@ -40,7 +41,7 @@ function NavBar({ children }) {
       window.location.href = '/';
     } catch (error) {
       console.error('Logout error:', error);
-      toast.error('Failed to log out. Please try again.');
+      showSnackbar('Failed to log out. Please try again.', 'error');
     }
   };
 

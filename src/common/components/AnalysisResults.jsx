@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
-import { toast } from 'sonner';
+import { useSnackbar } from '@/common/contexts/SnackbarContext';
 import {
   Table, TableHead, TableRow, TableCell, TableBody,
   Chip, Collapse, Tooltip, IconButton, Alert, Button, Menu, MenuItem,
@@ -262,6 +262,7 @@ export default function AnalysisResults({
   onSaved,
 }) {
   const { getToken } = useContext(UserContext);
+  const showSnackbar = useSnackbar();
   const navigate = useNavigate();
   const [exportMenuAnchor, setExportMenuAnchor] = useState(null);
   const [exportResumeMenuAnchor, setExportResumeMenuAnchor] = useState(null);
@@ -441,7 +442,7 @@ export default function AnalysisResults({
       });
     } catch (err) {
       console.error('Export PDF error:', err);
-      toast.error('Failed to export PDF. Please try again.');
+      showSnackbar('Failed to export PDF. Please try again.', 'error');
     }
   };
 
@@ -454,7 +455,7 @@ export default function AnalysisResults({
       });
     } catch (err) {
       console.error('Export DOCX error:', err);
-      toast.error('Failed to export DOCX. Please try again.');
+      showSnackbar('Failed to export DOCX. Please try again.', 'error');
     }
   };
 
@@ -502,10 +503,10 @@ export default function AnalysisResults({
       setSaveModalOpen(false);
       setSaveResumeFileName('');
       if (onSaved) onSaved({ resumeId: newResumeId });
-      toast.success('Resume saved successfully!');
+      showSnackbar('Resume saved', 'success');
     } catch (err) {
       console.error('Save resume error:', err);
-      toast.error(err.response?.data?.error || 'Failed to save resume. Please try again.');
+      showSnackbar(err.response?.data?.error || 'Failed to save resume. Please try again.', 'error');
     } finally {
       setSavingResume(false);
     }
@@ -518,7 +519,7 @@ export default function AnalysisResults({
     if (rid) {
       navigate(`/editor/${rid}`);
     } else {
-      toast.error('No resume linked to this analysis. The analysis must have been run with a saved resume to open in the editor.');
+      showSnackbar('No resume linked to this analysis. The analysis must have been run with a saved resume to open in the editor.', 'error');
     }
   };
 
