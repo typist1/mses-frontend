@@ -418,9 +418,9 @@ export default function ResumeEditor() {
     try {
       await exportDocx({ ...resume, contactFieldOrder }, {
         sectionOrder,
-        scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
         filename: resumeName || resume.contact.name || 'resume',
         format,
+        fitToOnePage,
       });
     } catch (err) {
       console.error('DOCX export error:', err);

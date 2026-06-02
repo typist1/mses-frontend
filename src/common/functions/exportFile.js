@@ -45,9 +45,18 @@ export async function exportPdf(resume, { sectionOrder, scale = 1, filename, for
   URL.revokeObjectURL(url);
 }
 
-export async function exportDocx(resume, { sectionOrder, scale = 1, filename, format }) {
+export async function exportDocx(resume, { sectionOrder, scale = 1, filename, format, fitToOnePage = false }) {
   const resumeData = sectionOrder ? { ...resume, sectionOrder } : resume;
-  const doc = buildDocx(resumeData, scale, format);
+  let fontScale = scale;
+  if (fitToOnePage) {
+    const baseOptions = {
+      margins: format?.margins ?? 36,
+      lineSpacing: format?.lineSpacing ?? 1.2,
+      sectionOrder,
+    };
+    fontScale = await getOptimalFontScale(resumeData, baseOptions);
+  }
+  const doc = buildDocx(resumeData, fontScale, format);
   const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

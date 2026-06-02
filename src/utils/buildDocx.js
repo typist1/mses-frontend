@@ -102,7 +102,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         children.push(docxEntryHeader(exp.company, rightPart));
         if (exp.title) children.push(docxItalicSub(exp.title));
         exp.bullets.filter(Boolean).forEach((b) => {
-          children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: b, size: sz(20) })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
+          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20) })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
         });
       });
       continue;
@@ -115,7 +115,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         children.push(docxEntryHeader(proj.name, dates));
         if (proj.tech) children.push(docxItalicSub(proj.tech));
         proj.bullets.filter(Boolean).forEach((b) => {
-          children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun({ text: b, size: sz(20) })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
+          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20) })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
         });
       });
       continue;
@@ -166,6 +166,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
 
   const sectionProps = {
     page: {
+      size: { width: 12240, height: 15840 }, // Letter: 8.5" x 11" in twips
       margin: { top: pageMarginTwips, bottom: pageMarginTwips, left: pageMarginTwips, right: pageMarginTwips },
     },
   };
