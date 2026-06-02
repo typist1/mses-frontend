@@ -15,6 +15,7 @@ import {
   TextField,
   Select,
   MenuItem,
+  Menu,
   FormControl,
   InputLabel,
   InputAdornment,
@@ -35,7 +36,7 @@ import {
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
 import { useSnackbar } from '@/common/contexts/SnackbarContext';
-import { buildDocx, Packer } from '@/utils/buildDocx';
+import { exportPdf, exportDocx, getExportPdfBlob, getOptimalFontScale } from '@/common/functions/exportFile.js';
 import { UserContext } from '@/common/contexts/UserContext';
 import './Resumes.css';
 
@@ -48,23 +49,33 @@ const DATE_PRESETS = [
   { value: '3m', label: 'Last 3 months' },
 ];
 
-// Converts DB-format parsed_resume → buildDocx-compatible format
+// Converts DB-format parsed_resume → buildDocx/buildPdf-compatible format.
+// Mirrors prepareMergedForExport: adds defensive defaults for all optional fields
+// so buildDocx/getPdfBlob never crash on .length or .forEach of undefined.
 function prepareForDocx(parsedResume) {
-  const skills = Array.isArray(parsedResume.skills)
-    ? parsedResume.skills
-    : [
-        { id: 'sk-tech',  category: 'Technical',  items: (parsedResume.skills?.technical  || []).join(', ') },
-        { id: 'sk-tools', category: 'Tools',       items: (parsedResume.skills?.tools      || []).join(', ') },
-        { id: 'sk-lang',  category: 'Languages',   items: (parsedResume.skills?.languages  || []).join(', ') },
-        { id: 'sk-soft',  category: 'Soft Skills', items: (parsedResume.skills?.soft       || []).join(', ') },
-      ].filter((r) => r.items);
+  const s = parsedResume.skills;
+  const skills = Array.isArray(s) ? s : [
+    { id: 'sk-tech',  category: 'Technical',  items: (s?.technical  || []).join(', ') },
+    { id: 'sk-tools', category: 'Tools',       items: (s?.tools      || []).join(', ') },
+    { id: 'sk-lang',  category: 'Languages',   items: (s?.languages  || []).join(', ') },
+    { id: 'sk-soft',  category: 'Soft Skills', items: (s?.soft       || []).join(', ') },
+  ].filter((r) => r.items);
 
   return {
     ...parsedResume,
+    contact: parsedResume.contact || {},
+    contactExtra: parsedResume.contactExtra || [],
+    summary: parsedResume.summary || '',
+    education: parsedResume.education || [],
+    experience: (parsedResume.experience || []).map((e) => ({ ...e, bullets: e.bullets || [] })),
+    certifications: parsedResume.certifications || [],
+    honors_awards: parsedResume.honors_awards || [],
+    customSections: parsedResume.customSections || [],
     skills,
     projects: (parsedResume.projects || []).map((p) => ({
       ...p,
       tech: Array.isArray(p.tech) ? p.tech.join(', ') : (p.tech || ''),
+      bullets: p.bullets || [],
     })),
   };
 }
@@ -311,13 +322,15 @@ function Resumes() {
   const handleView = async (resume) => {
     try {
       if (resume.parsed_resume) {
-        const doc = buildDocx(prepareForDocx(resume.parsed_resume));
-        const blob = await Packer.toBlob(doc);
-        const arrayBuffer = await blob.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
+        const blob = await getExportPdfBlob(prepareForDocx(resume.parsed_resume), {
+          format: resume.parsed_resume?.format ?? { margins: 40, lineSpacing: 1.3 },
+          bulletStyle: resume.parsed_resume?.bulletStyle ?? 'dash',
+          fitToOnePage: resume.parsed_resume?.fitToOnePage ?? true,
+        });
+        const url = URL.createObjectURL(blob);
         setPreviewResume(resume);
-        setPreviewType('docx');
-        setPreviewContent(result.value);
+        setPreviewType('pdf');
+        setPreviewContent(url);
         setPreviewOpen(true);
         return;
       }
@@ -349,28 +362,13 @@ function Resumes() {
     }
   };
 
-  const handleDownload = async (resume) => {
+  const handleDownloadOriginal = async (resume) => {
     try {
-      if (resume.parsed_resume) {
-        const doc = buildDocx(prepareForDocx(resume.parsed_resume));
-        const blob = await Packer.toBlob(doc);
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = resume.file_name.replace(/\.[^/.]+$/, '') + '.docx';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        return;
-      }
-
       const token = await getToken();
       const response = await axios.get(`${BACKEND_URL}/resumes/${resume.id}/download`, {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob',
       });
-
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
@@ -382,6 +380,46 @@ function Resumes() {
     } catch (error) {
       console.error('Error downloading resume:', error);
       showSnackbar('Failed to download resume. Please try again.', 'error');
+    }
+  };
+
+  const handleDownloadDocx = async (resume) => {
+    try {
+      const parsed = prepareForDocx(resume.parsed_resume);
+      const fitToOnePage = resume.parsed_resume?.fitToOnePage ?? true;
+      const format = resume.parsed_resume?.format ?? { margins: 40, lineSpacing: 1.3 };
+      const bulletStyle = resume.parsed_resume?.bulletStyle ?? 'dash';
+      let scale = 1;
+      if (fitToOnePage) {
+        scale = Math.min(await getOptimalFontScale(parsed, {
+          margins: format?.margins ?? 36,
+          lineSpacing: format?.lineSpacing ?? 1.2,
+          bulletStyle,
+          sectionOrder: parsed.sectionOrder,
+        }), 1.05);
+      }
+      await exportDocx(parsed, {
+        filename: resume.file_name.replace(/\.[^/.]+$/, ''),
+        format,
+        scale,
+      });
+    } catch (error) {
+      console.error('Error downloading DOCX:', error);
+      showSnackbar('Failed to download DOCX. Please try again.', 'error');
+    }
+  };
+
+  const handleDownloadPdf = async (resume) => {
+    try {
+      await exportPdf(prepareForDocx(resume.parsed_resume), {
+        filename: resume.file_name.replace(/\.[^/.]+$/, ''),
+        format: resume.parsed_resume?.format ?? { margins: 40, lineSpacing: 1.3 },
+        bulletStyle: resume.parsed_resume?.bulletStyle ?? 'dash',
+        fitToOnePage: resume.parsed_resume?.fitToOnePage ?? true,
+      });
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      showSnackbar('Failed to download PDF. Please try again.', 'error');
     }
   };
 
@@ -412,7 +450,9 @@ function Resumes() {
     });
   };
 
-  const ResumeCard = ({ resume, isVersion }) => (
+  const ResumeCard = ({ resume, isVersion }) => {
+    const [dlAnchor, setDlAnchor] = useState(null);
+    return (
     <Card
       className={`resume-card ${resume.is_active ? 'active' : ''}`}
       style={isVersion ? { marginLeft: 24, marginTop: 8, borderLeft: '3px solid #e5e7eb' } : {}}
@@ -477,7 +517,14 @@ function Resumes() {
             <IconButton onClick={() => handleView(resume)} className="icon-btn"><Visibility /></IconButton>
           </Tooltip>
           <Tooltip title="Download">
-            <IconButton onClick={() => handleDownload(resume)} className="icon-btn"><Download /></IconButton>
+            <IconButton
+              onClick={resume.parsed_resume
+                ? (e) => setDlAnchor(e.currentTarget)
+                : () => handleDownloadOriginal(resume)}
+              className="icon-btn"
+            >
+              <Download />
+            </IconButton>
           </Tooltip>
           <Tooltip title="Delete">
             <IconButton onClick={() => handleDelete(resume.id, resume.file_name)} className="icon-btn icon-btn-danger">
@@ -485,9 +532,14 @@ function Resumes() {
             </IconButton>
           </Tooltip>
         </div>
+        <Menu anchorEl={dlAnchor} open={!!dlAnchor} onClose={() => setDlAnchor(null)}>
+          <MenuItem onClick={() => { handleDownloadDocx(resume); setDlAnchor(null); }}>Download DOCX</MenuItem>
+          <MenuItem onClick={() => { handleDownloadPdf(resume); setDlAnchor(null); }}>Download PDF</MenuItem>
+        </Menu>
       </CardContent>
     </Card>
-  );
+    );
+  };
 
   const renderGroup = (resume) => {
     const versions = versionMap[resume.id] || [];

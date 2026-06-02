@@ -282,6 +282,9 @@ export default function ResumeEditor() {
           setResumeName(data.file_name.replace(/\.[^/.]+$/, ''));
           setResumeExt(data.file_name.match(/\.[^/.]+$/)?.[0]?.toLowerCase() || '.docx');
         }
+        if (data.parsed_resume?.format) setFormat(data.parsed_resume.format);
+        if (data.parsed_resume?.bulletStyle) setBulletStyle(data.parsed_resume.bulletStyle);
+        if (data.parsed_resume?.fitToOnePage !== undefined) setFitToOnePage(data.parsed_resume.fitToOnePage);
       } catch (err) {
         console.error('Failed to load resume for editor:', err);
         showSnackbar('Could not load this resume. It may have been deleted.', 'error');
@@ -317,7 +320,7 @@ export default function ResumeEditor() {
     el.style.zoom = '';
     const h = el.scrollHeight;
     setFitFontScale(Math.max(0.5, Math.min(1.5, PAPER_HEIGHT / h)));
-  }, [fitToOnePage, resume, format]);
+  }, [fitToOnePage, resume, format, loadingResume]);
 
   const panelScale = panelWidth / PAPER_WIDTH;
   const numPages = fitToOnePage ? 1 : Math.ceil(contentHeight / PAPER_HEIGHT);
@@ -410,6 +413,9 @@ export default function ResumeEditor() {
       const parsedForSave = {
         ...resume,
         sectionOrder,
+        format,
+        bulletStyle,
+        fitToOnePage,
         skills: rowsToSkills(resume.skills),
         projects: resume.projects.map((p) => ({
           ...p,

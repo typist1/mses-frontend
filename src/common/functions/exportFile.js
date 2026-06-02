@@ -9,7 +9,17 @@ async function countPdfPages(blob) {
   return (text.match(/\/Type\s*\/Page[^s]/g) || []).length;
 }
 
-export async function exportPdf(resume, { sectionOrder, scale = 1, filename, format, bulletStyle, fitToOnePage = false }) {
+export async function getOptimalFontScale(resume, baseOptions) {
+  let lo = 0.4, hi = 1.0, best = null;
+  for (let i = 0; i < 8; i++) {
+    const mid = (lo + hi) / 2;
+    const b = await getPdfBlob(resume, { ...baseOptions, fontScale: mid });
+    if (await countPdfPages(b) <= 1) { best = mid; lo = mid; } else { hi = mid; }
+  }
+  return best ?? 0.4;
+}
+
+export async function getExportPdfBlob(resume, { sectionOrder, scale = 1, format, bulletStyle, fitToOnePage = false }) {
   const resumeData = sectionOrder ? { ...resume, sectionOrder } : resume;
   const baseOptions = {
     margins: format?.margins ?? 36,
@@ -18,27 +28,15 @@ export async function exportPdf(resume, { sectionOrder, scale = 1, filename, for
     sectionOrder,
   };
 
-  let blob;
-
   if (fitToOnePage) {
-    // Binary search for the largest fontScale that fits content on exactly 1 page.
-    // pdfmake layout differs from CSS layout, so we can't trust fitFontScale from the editor.
-    let lo = 0.4, hi = 1.0, bestBlob = null;
-    for (let i = 0; i < 8; i++) {
-      const mid = (lo + hi) / 2;
-      const b = await getPdfBlob(resumeData, { ...baseOptions, fontScale: mid });
-      if (await countPdfPages(b) <= 1) {
-        bestBlob = b;
-        lo = mid; // fits — try larger scale
-      } else {
-        hi = mid; // overflows — try smaller scale
-      }
-    }
-    blob = bestBlob ?? await getPdfBlob(resumeData, { ...baseOptions, fontScale: 0.4 });
-  } else {
-    blob = await getPdfBlob(resumeData, { ...baseOptions, fontScale: scale });
+    const optScale = await getOptimalFontScale(resumeData, baseOptions);
+    return getPdfBlob(resumeData, { ...baseOptions, fontScale: optScale });
   }
+  return getPdfBlob(resumeData, { ...baseOptions, fontScale: scale });
+}
 
+export async function exportPdf(resume, { sectionOrder, scale = 1, filename, format, bulletStyle, fitToOnePage = false }) {
+  const blob = await getExportPdfBlob(resume, { sectionOrder, scale, format, bulletStyle, fitToOnePage });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

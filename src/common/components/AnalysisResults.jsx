@@ -36,6 +36,10 @@ function fitRowColor(score) {
   return '#f0fdf4';
 }
 
+function toSlug(s) {
+  return (s || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 export function applyChangeLog(parsedResume, changeLog, accepted) {
   const merged = JSON.parse(JSON.stringify(parsedResume));
   (changeLog || []).forEach((entry, i) => {
@@ -314,22 +318,29 @@ export default function AnalysisResults({
   };
 
   const handleExportSkillGapDocx = async () => {
-    const { Document, Packer: DocxPacker, Paragraph, TextRun, Table: DocxTable, TableRow: DocxTableRow, TableCell: DocxTableCell, WidthType } = await import('docx');
+    const { Document, Packer: DocxPacker, Paragraph, TextRun, Table: DocxTable, TableRow: DocxTableRow, TableCell: DocxTableCell, WidthType, ShadingType } = await import('docx');
     const changeLog = change_log || [];
     const h = (text, size = 24) => new Paragraph({ children: [new TextRun({ text, bold: true, size })], spacing: { before: 240, after: 120 } });
     const p = (text, size = 18) => new Paragraph({ children: [new TextRun({ text: String(text), size })], spacing: { after: 60 } });
-    const cell = (text, bold = false) => new DocxTableCell({ children: [new Paragraph({ children: [new TextRun({ text: String(text || '—'), bold, size: 16 })] })], width: { size: 1, type: WidthType.AUTO } });
-    const headerRow = new DocxTableRow({ children: ['Skill', 'Importance', 'Fit Score', 'Gap Keywords', 'Recommended Actions', 'Recommended Courses'].map((t) => cell(t, true)) });
-    const skillRows = skills.map((s) => new DocxTableRow({
-      children: [
-        cell(s.skill),
-        cell(s.importance === 0 ? 'Required' : 'Preferred'),
-        cell(`${s.fit_score} — ${fitLabel(s.fit_score)}`),
-        cell(s.gap_keywords || '—'),
-        cell(s.recommended_actions || '—'),
-        cell((s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—'),
-      ],
-    }));
+    const cell = (text, bold = false, fill = null) => new DocxTableCell({
+      children: [new Paragraph({ children: [new TextRun({ text: String(text || '—'), bold, size: 16 })] })],
+      width: { size: 1, type: WidthType.AUTO },
+      ...(fill ? { shading: { fill, type: ShadingType.CLEAR, color: 'auto' } } : {}),
+    });
+    const headerRow = new DocxTableRow({ children: ['Skill', 'Importance', 'Fit Score', 'Gap Keywords', 'Recommended Actions', 'Recommended Courses'].map((t) => cell(t, true, 'F3F4F6')) });
+    const skillRows = skills.map((s) => {
+      const fill = fitRowColor(s.fit_score).replace('#', '').toUpperCase();
+      return new DocxTableRow({
+        children: [
+          cell(s.skill, false, fill),
+          cell(s.importance === 0 ? 'Required' : 'Preferred', false, fill),
+          cell(`${s.fit_score} — ${fitLabel(s.fit_score)}`, false, fill),
+          cell(s.gap_keywords || '—', false, fill),
+          cell(s.recommended_actions || '—', false, fill),
+          cell((s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—', false, fill),
+        ],
+      });
+    });
     const clParagraphs = changeLog.length > 0 ? [
       h('Resume Changes'),
       ...changeLog.flatMap((e, idx) => [
@@ -347,6 +358,11 @@ export default function AnalysisResults({
           p(`Job Title: ${analysis.job_title || 'N/A'}`),
           p(`Company: ${analysis.company || 'N/A'}`),
           ...(score_breakdown ? [p(`Score Breakdown: ${score_breakdown}`)] : []),
+          h('Fit Score Legend'),
+          p('1 — Not Found'),
+          p('2 — Related / Transferable Experience'),
+          p('3 — Explicitly Demonstrated'),
+          p('4 — Demonstrated with Measurable Impact'),
           h('Skills Gap Analysis'),
           new DocxTable({ rows: [headerRow, ...skillRows], width: { size: 9000, type: WidthType.DXA } }),
           ...clParagraphs,
@@ -356,7 +372,7 @@ export default function AnalysisResults({
     const blob = await DocxPacker.toBlob(doc);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `skill-gap-analysis-${Date.now()}.docx`; a.click();
+    a.href = url; a.download = `${toSlug(analysis.job_title)}-${toSlug(analysis.company)}-skill-gap-analysis.docx`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -372,7 +388,9 @@ export default function AnalysisResults({
       { text: `Overall Fit Score: ${overall_fit_score}%`, bold: true, fontSize: 12 },
       { text: `Job Title: ${analysis.job_title || 'N/A'}`, fontSize: 10 },
       { text: `Company: ${analysis.company || 'N/A'}`, fontSize: 10, margin: [0, 0, 0, 4] },
-      ...(score_breakdown ? [{ text: `Score Breakdown: ${score_breakdown}`, fontSize: 9, color: '#6b7280', margin: [0, 0, 0, 12] }] : [{ text: '', margin: [0, 0, 0, 12] }]),
+      ...(score_breakdown ? [{ text: `Score Breakdown: ${score_breakdown}`, fontSize: 9, color: '#6b7280', margin: [0, 0, 0, 8] }] : [{ text: '', margin: [0, 0, 0, 8] }]),
+      { text: 'Fit Score Legend', bold: true, fontSize: 10, margin: [0, 0, 0, 2] },
+      { ul: ['1 — Not Found', '2 — Related / Transferable Experience', '3 — Explicitly Demonstrated', '4 — Demonstrated with Measurable Impact'], fontSize: 8, margin: [0, 0, 0, 10] },
       { text: 'Skills Gap Analysis', bold: true, fontSize: 13, margin: [0, 0, 0, 6] },
       {
         table: {
@@ -387,14 +405,17 @@ export default function AnalysisResults({
               { text: 'Recommended Actions', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
               { text: 'Recommended Courses', bold: true, fontSize: 8, fillColor: '#f3f4f6' },
             ],
-            ...skills.map((s) => [
-              { text: s.skill, fontSize: 8 },
-              { text: s.importance === 0 ? 'Required' : 'Preferred', fontSize: 8 },
-              { text: `${s.fit_score} — ${fitLabel(s.fit_score)}`, fontSize: 8 },
-              { text: s.gap_keywords || '—', fontSize: 8 },
-              { text: s.recommended_actions || '—', fontSize: 8 },
-              { text: (s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—', fontSize: 8 },
-            ]),
+            ...skills.map((s) => {
+              const rowColor = fitRowColor(s.fit_score);
+              return [
+                { text: s.skill, fontSize: 8, fillColor: rowColor },
+                { text: s.importance === 0 ? 'Required' : 'Preferred', fontSize: 8, fillColor: rowColor },
+                { text: `${s.fit_score} — ${fitLabel(s.fit_score)}`, fontSize: 8, fillColor: rowColor },
+                { text: s.gap_keywords || '—', fontSize: 8, fillColor: rowColor },
+                { text: s.recommended_actions || '—', fontSize: 8, fillColor: rowColor },
+                { text: (s.suggested_courses || []).map((c) => c.course_code).join(', ') || '—', fontSize: 8, fillColor: rowColor },
+              ];
+            }),
           ],
         },
         layout: 'lightHorizontalLines',
@@ -418,7 +439,7 @@ export default function AnalysisResults({
         );
       });
     }
-    pdfMake.createPdf({ content, pageMargins: [36, 36, 36, 36] }).download(`skill-gap-analysis-${Date.now()}.pdf`);
+    pdfMake.createPdf({ content, pageMargins: [36, 36, 36, 36] }).download(`${toSlug(analysis.job_title)}-${toSlug(analysis.company)}-skill-gap-analysis.pdf`);
   };
 
   // ── Export Optimized Resume ────────────────────────────────────────────────
