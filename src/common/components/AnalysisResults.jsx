@@ -13,6 +13,7 @@ import {
   InfoOutlined, Edit as EditIcon, ArrowDropDown,
 } from '@mui/icons-material';
 import { COURSES } from '../../assets/MSESCoursesFull.js';
+import { skillsToRows } from '@/utils/resumeUtils';
 import { buildDocx, Packer } from '../../utils/buildDocx.js';
 import { exportPdf, exportDocx } from '../functions/exportFile.js';
 import { UserContext } from '@/common/contexts/UserContext';
@@ -62,15 +63,6 @@ export function applyChangeLog(parsedResume, changeLog, accepted) {
   return merged;
 }
 
-function skillsToRows(skills) {
-  if (Array.isArray(skills)) return skills;
-  return [
-    { id: 'sk-tech',  category: 'Technical',  items: (skills?.technical || []).join(', ') },
-    { id: 'sk-tools', category: 'Tools',       items: (skills?.tools     || []).join(', ') },
-    { id: 'sk-lang',  category: 'Languages',   items: (skills?.languages || []).join(', ') },
-    { id: 'sk-soft',  category: 'Soft Skills', items: (skills?.soft      || []).join(', ') },
-  ].filter((r) => r.items);
-}
 
 export function prepareMergedForExport(merged) {
   return {

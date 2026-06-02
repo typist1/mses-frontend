@@ -11,6 +11,7 @@ import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
 
 import { BACKEND_URL } from '@/utils/constants';
+import { skillsToRows } from '@/utils/resumeUtils';
 const PAPER_WIDTH = 816;
 const PAPER_HEIGHT = 1056;
 const newId = () => crypto.randomUUID();
@@ -92,16 +93,6 @@ const DEMO_RESUME = {
   customSections: [],
 };
 
-// LLM skills object → editor rows array
-function skillsToRows(skills) {
-  if (Array.isArray(skills)) return skills;
-  return [
-    { id: 'sk-tech',  category: 'Technical',   items: (skills?.technical  || []).join(', ') },
-    { id: 'sk-tools', category: 'Tools',        items: (skills?.tools      || []).join(', ') },
-    { id: 'sk-lang',  category: 'Languages',    items: (skills?.languages  || []).join(', ') },
-    { id: 'sk-soft',  category: 'Soft Skills',  items: (skills?.soft       || []).join(', ') },
-  ].filter((r) => r.items);
-}
 
 // Editor rows array → LLM skills object (for DB save)
 function rowsToSkills(rows) {
