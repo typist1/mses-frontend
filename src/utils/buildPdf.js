@@ -23,12 +23,9 @@ export function getPdfBlob(resume, { fontScale = 1, margins = 36, lineSpacing = 
     margin: [0, 0, 0, sp(2)],
   });
 
+  const contactFieldOrder = resume.contactFieldOrder || ['name', 'email', 'phone', 'linkedin', 'github', 'location'];
   const contactParts = [
-    resume.contact.email,
-    resume.contact.phone,
-    resume.contact.location,
-    resume.contact.linkedin,
-    resume.contact.github,
+    ...contactFieldOrder.filter((k) => k !== 'name').map((k) => resume.contact[k]),
     ...((resume.contactExtra || []).filter((f) => f.value).map((f) => f.value)),
   ].filter(Boolean);
 

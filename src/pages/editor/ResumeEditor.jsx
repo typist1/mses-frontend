@@ -156,12 +156,16 @@ function BulletList({ bullets, onChange }) {
   );
 }
 
-function SectionCard({ title, onRemove, children }) {
+function SectionCard({ title, onRemove, onMoveUp, onMoveDown, canMoveUp, canMoveDown, children }) {
   return (
     <div className="entry-card">
       <div className="entry-card-header">
         <span className="entry-card-title">{title}</span>
-        <IconButton size="small" onClick={onRemove} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button className="section-move-btn" disabled={!canMoveUp} onClick={onMoveUp} title="Move up"><KeyboardArrowUp fontSize="small" /></button>
+          <button className="section-move-btn" disabled={!canMoveDown} onClick={onMoveDown} title="Move down"><KeyboardArrowDown fontSize="small" /></button>
+          <IconButton size="small" onClick={onRemove} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
+        </div>
       </div>
       {children}
     </div>
@@ -252,6 +256,7 @@ export default function ResumeEditor() {
     return r ? initFromLLM(r) : null;
   });
   const [sectionOrder, setSectionOrder] = useState(DEFAULT_SECTION_ORDER);
+  const [contactFieldOrder, setContactFieldOrder] = useState(['name', 'email', 'phone', 'linkedin', 'github', 'location']);
   const [collapsed, setCollapsed] = useState(() =>
     Object.fromEntries(DEFAULT_SECTION_ORDER.map((k) => [k, true]))
   );
@@ -285,6 +290,7 @@ export default function ResumeEditor() {
         if (data.parsed_resume?.format) setFormat(data.parsed_resume.format);
         if (data.parsed_resume?.bulletStyle) setBulletStyle(data.parsed_resume.bulletStyle);
         if (data.parsed_resume?.fitToOnePage !== undefined) setFitToOnePage(data.parsed_resume.fitToOnePage);
+        if (Array.isArray(data.parsed_resume?.contactFieldOrder)) setContactFieldOrder(data.parsed_resume.contactFieldOrder);
       } catch (err) {
         console.error('Failed to load resume for editor:', err);
         showSnackbar('Could not load this resume. It may have been deleted.', 'error');
@@ -353,6 +359,28 @@ export default function ResumeEditor() {
   const updateCustomSection = (id, key, val) =>
     setResume((r) => ({ ...r, customSections: (r.customSections || []).map((cs) => (cs.id === id ? { ...cs, [key]: val } : cs)) }));
 
+  // ── Entry order helpers ────────────────────────────────────────────
+  const moveEntry = (field, id, dir) => {
+    setResume((r) => {
+      const items = r[field];
+      const idx = items.findIndex((e) => e.id === id);
+      const swap = idx + dir;
+      if (swap < 0 || swap >= items.length) return r;
+      const next = [...items];
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return { ...r, [field]: next };
+    });
+  };
+  const moveContactField = (idx, dir) => {
+    setContactFieldOrder((prev) => {
+      const swap = idx + dir;
+      if (swap < 0 || swap >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[swap]] = [next[swap], next[idx]];
+      return next;
+    });
+  };
+
   // ── Section order helpers ──────────────────────────────────────────
   const moveSection = (key, dir) => {
     setSectionOrder((prev) => {
@@ -369,7 +397,7 @@ export default function ResumeEditor() {
   const handleExportPdf = async () => {
     setExporting(true);
     try {
-      await exportPdf(resume, {
+      await exportPdf({ ...resume, contactFieldOrder }, {
         sectionOrder,
         scale: 1,
         filename: resumeName || resume.contact.name || 'resume',
@@ -388,7 +416,7 @@ export default function ResumeEditor() {
   const handleExportDocx = async () => {
     setExportingDocx(true);
     try {
-      await exportDocx(resume, {
+      await exportDocx({ ...resume, contactFieldOrder }, {
         sectionOrder,
         scale: fitToOnePage ? Math.min(fitFontScale, 1.05) : 1,
         filename: resumeName || resume.contact.name || 'resume',
@@ -413,6 +441,7 @@ export default function ResumeEditor() {
       const parsedForSave = {
         ...resume,
         sectionOrder,
+        contactFieldOrder,
         format,
         bulletStyle,
         fitToOnePage,
@@ -438,11 +467,7 @@ export default function ResumeEditor() {
   };
 
   // ── Form section renderer ──────────────────────────────────────────
-  const allContacts = [
-    { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Phone' }, { key: 'linkedin', label: 'LinkedIn' },
-    { key: 'github', label: 'GitHub' }, { key: 'location', label: 'Location' },
-  ];
+  const contactLabelMap = { name: 'Name', email: 'Email', phone: 'Phone', linkedin: 'LinkedIn', github: 'GitHub', location: 'Location' };
 
   const renderFormSection = (key, idx) => {
     const canMoveUp = idx > 0;
@@ -460,10 +485,14 @@ export default function ResumeEditor() {
 
     if (key === 'contact') return (
       <FormSection {...props} title="Contact Info">
-        {allContacts.map(({ key: k, label }) => (
+        {contactFieldOrder.map((k, idx) => (
           <div className="field-row" key={k}>
-            <span className="field-label">{label}</span>
-            <input className="editor-input" value={resume.contact[k] || ''} onChange={(e) => setContact(k, e.target.value)} placeholder={label} />
+            <span className="field-label">{contactLabelMap[k]}</span>
+            <input className="editor-input" value={resume.contact[k] || ''} onChange={(e) => setContact(k, e.target.value)} placeholder={contactLabelMap[k]} />
+            <div style={{ display: 'flex', gap: 2 }}>
+              <button className="section-move-btn" disabled={idx === 0} onClick={() => moveContactField(idx, -1)} title="Move up"><KeyboardArrowUp fontSize="small" /></button>
+              <button className="section-move-btn" disabled={idx === contactFieldOrder.length - 1} onClick={() => moveContactField(idx, 1)} title="Move down"><KeyboardArrowDown fontSize="small" /></button>
+            </div>
           </div>
         ))}
         {(resume.contactExtra || []).map((f) => (
@@ -481,8 +510,8 @@ export default function ResumeEditor() {
 
     if (key === 'experience') return (
       <FormSection {...props} title="Work Experience">
-        {resume.experience.map((exp) => (
-          <SectionCard key={exp.id} title={exp.company || 'New Entry'} onRemove={() => removeEntry('experience', exp.id)}>
+        {resume.experience.map((exp, idx) => (
+          <SectionCard key={exp.id} title={exp.company || 'New Entry'} onRemove={() => removeEntry('experience', exp.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.experience.length - 1} onMoveUp={() => moveEntry('experience', exp.id, -1)} onMoveDown={() => moveEntry('experience', exp.id, 1)}>
             <div className="field-row"><span className="field-label">Company</span><input className="editor-input" value={exp.company} onChange={(e) => updateEntry('experience', exp.id, 'company', e.target.value)} placeholder="Company" /></div>
             <div className="field-row"><span className="field-label">Role</span><input className="editor-input" value={exp.title} onChange={(e) => updateEntry('experience', exp.id, 'title', e.target.value)} placeholder="Job Title" /></div>
             <div className="field-row"><span className="field-label">Location</span><input className="editor-input" value={exp.location} onChange={(e) => updateEntry('experience', exp.id, 'location', e.target.value)} placeholder="City, ST" /></div>
@@ -502,8 +531,8 @@ export default function ResumeEditor() {
 
     if (key === 'education') return (
       <FormSection {...props} title="Education">
-        {resume.education.map((edu) => (
-          <SectionCard key={edu.id} title={edu.institution || 'New Entry'} onRemove={() => removeEntry('education', edu.id)}>
+        {resume.education.map((edu, idx) => (
+          <SectionCard key={edu.id} title={edu.institution || 'New Entry'} onRemove={() => removeEntry('education', edu.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.education.length - 1} onMoveUp={() => moveEntry('education', edu.id, -1)} onMoveDown={() => moveEntry('education', edu.id, 1)}>
             <div className="field-row"><span className="field-label">School</span><input className="editor-input" value={edu.institution} onChange={(e) => updateEntry('education', edu.id, 'institution', e.target.value)} placeholder="University Name" /></div>
             <div className="field-row"><span className="field-label">Degree</span><input className="editor-input" value={edu.degree} onChange={(e) => updateEntry('education', edu.id, 'degree', e.target.value)} placeholder="B.S. / M.S. / Ph.D." /></div>
             <div className="field-row"><span className="field-label">Field</span><input className="editor-input" value={edu.field} onChange={(e) => updateEntry('education', edu.id, 'field', e.target.value)} placeholder="Computer Science" /></div>
@@ -523,11 +552,15 @@ export default function ResumeEditor() {
 
     if (key === 'skills') return (
       <FormSection {...props} title="Technical Skills">
-        {resume.skills.map((sk) => (
+        {resume.skills.map((sk, idx) => (
           <div key={sk.id} className="entry-card">
             <div className="entry-card-header">
               <input className="editor-input category-input" value={sk.category} onChange={(e) => updateEntry('skills', sk.id, 'category', e.target.value)} placeholder="Category (e.g. Languages)" />
-              <IconButton size="small" onClick={() => removeEntry('skills', sk.id)} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <button className="section-move-btn" disabled={idx === 0} onClick={() => moveEntry('skills', sk.id, -1)} title="Move up"><KeyboardArrowUp fontSize="small" /></button>
+                <button className="section-move-btn" disabled={idx === resume.skills.length - 1} onClick={() => moveEntry('skills', sk.id, 1)} title="Move down"><KeyboardArrowDown fontSize="small" /></button>
+                <IconButton size="small" onClick={() => removeEntry('skills', sk.id)} className="icon-btn-remove"><Delete fontSize="small" /></IconButton>
+              </div>
             </div>
             <input className="editor-input" value={sk.items} onChange={(e) => updateEntry('skills', sk.id, 'items', e.target.value)} placeholder="Skill1, Skill2, Skill3..." />
           </div>
@@ -540,8 +573,8 @@ export default function ResumeEditor() {
 
     if (key === 'projects') return (
       <FormSection {...props} title="Projects">
-        {resume.projects.map((proj) => (
-          <SectionCard key={proj.id} title={proj.name || 'New Entry'} onRemove={() => removeEntry('projects', proj.id)}>
+        {resume.projects.map((proj, idx) => (
+          <SectionCard key={proj.id} title={proj.name || 'New Entry'} onRemove={() => removeEntry('projects', proj.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.projects.length - 1} onMoveUp={() => moveEntry('projects', proj.id, -1)} onMoveDown={() => moveEntry('projects', proj.id, 1)}>
             <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={proj.name} onChange={(e) => updateEntry('projects', proj.id, 'name', e.target.value)} placeholder="Project Name" /></div>
             <div className="field-row"><span className="field-label">Tech</span><input className="editor-input" value={proj.tech} onChange={(e) => updateEntry('projects', proj.id, 'tech', e.target.value)} placeholder="React, Node.js, ..." /></div>
             <div className="dates-row">
@@ -560,8 +593,8 @@ export default function ResumeEditor() {
 
     if (key === 'certifications') return (
       <FormSection {...props} title="Certifications">
-        {resume.certifications.map((cert) => (
-          <SectionCard key={cert.id} title={cert.name || 'New Entry'} onRemove={() => removeEntry('certifications', cert.id)}>
+        {resume.certifications.map((cert, idx) => (
+          <SectionCard key={cert.id} title={cert.name || 'New Entry'} onRemove={() => removeEntry('certifications', cert.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.certifications.length - 1} onMoveUp={() => moveEntry('certifications', cert.id, -1)} onMoveDown={() => moveEntry('certifications', cert.id, 1)}>
             <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={cert.name} onChange={(e) => updateEntry('certifications', cert.id, 'name', e.target.value)} placeholder="Certification Name" /></div>
             <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={cert.issuer} onChange={(e) => updateEntry('certifications', cert.id, 'issuer', e.target.value)} placeholder="Issuing Organization" /></div>
             <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={cert.date} onChange={(e) => updateEntry('certifications', cert.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
@@ -575,8 +608,8 @@ export default function ResumeEditor() {
 
     if (key === 'honors_awards') return (
       <FormSection {...props} title="Honors & Awards">
-        {resume.honors_awards.map((award) => (
-          <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honors_awards', award.id)}>
+        {resume.honors_awards.map((award, idx) => (
+          <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honors_awards', award.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.honors_awards.length - 1} onMoveUp={() => moveEntry('honors_awards', award.id, -1)} onMoveDown={() => moveEntry('honors_awards', award.id, 1)}>
             <div className="field-row"><span className="field-label">Title</span><input className="editor-input" value={award.title} onChange={(e) => updateEntry('honors_awards', award.id, 'title', e.target.value)} placeholder="Award Name" /></div>
             <div className="field-row"><span className="field-label">Issuer</span><input className="editor-input" value={award.issuer} onChange={(e) => updateEntry('honors_awards', award.id, 'issuer', e.target.value)} placeholder="Organization" /></div>
             <div className="field-row"><span className="field-label">Date</span><input className="editor-input" value={award.date} onChange={(e) => updateEntry('honors_awards', award.id, 'date', e.target.value)} placeholder="Mon YYYY" /></div>
@@ -609,8 +642,7 @@ export default function ResumeEditor() {
         <div className="rp-name">{resume.contact.name || 'Your Name'}</div>
         <div className="rp-contact-row">
           {[
-            resume.contact.phone, resume.contact.email, resume.contact.linkedin,
-            resume.contact.github, resume.contact.location,
+            ...contactFieldOrder.filter((k) => k !== 'name').map((k) => resume.contact[k]),
             ...((resume.contactExtra || []).filter((f) => f.value).map((f) => f.value)),
           ].filter(Boolean).join(' | ')}
         </div>
