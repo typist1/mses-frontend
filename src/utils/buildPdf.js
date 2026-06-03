@@ -1,7 +1,7 @@
 import pdfMake from 'pdfmake/build/pdfmake';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
 
-pdfMake.vfs = pdfFonts;
+pdfMake.addVirtualFileSystem(pdfFonts);
 
 export function getPdfBlob(resume, { fontScale = 1, margins = 36, lineSpacing = 1.2, bulletStyle = 'dash', sectionOrder: sectionOrderProp } = {}) {
   // margins slider is px (16–48); pdfmake uses pt — 1px ≈ 0.75pt

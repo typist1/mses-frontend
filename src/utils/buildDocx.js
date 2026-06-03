@@ -2,6 +2,16 @@ import {
   Document, Packer, Paragraph, TextRun, AlignmentType,
   BorderStyle, TabStopType, TabStopPosition,
 } from 'docx';
+import pdfFonts from 'pdfmake/build/vfs_fonts';
+
+// Decode base64 font data from pdfmake's vfs into Uint8Array for DOCX embedding.
+// vfs_fonts is already loaded by buildPdf.js — Vite deduplicates the module (no extra cost).
+function base64ToUint8Array(b64) {
+  const binary = atob(b64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return arr;
+}
 
 export function buildDocx(resume, fontScale = 1, format = {}) {
   const margins = format.margins ?? 40;
@@ -15,9 +25,11 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
   // Formula: pt * fontScale * (96/72 px/pt) * (15 twips/px) * lineSpacing = pt * fontScale * 20 * lineSpacing
   const ln = (pt) => Math.round(pt * fontScale * 20 * lineSpacing);
 
+  const F = 'Roboto';
+
   function docxHeading(text) {
     return new Paragraph({
-      children: [new TextRun({ text, bold: true, size: sz(22), allCaps: true })],
+      children: [new TextRun({ text, bold: true, size: sz(22), allCaps: true, font: F })],
       spacing: { before: sp(160), after: sp(60), line: ln(11), lineRule: 'exact' },
       border: { bottom: { color: '333333', size: 6, style: BorderStyle.SINGLE, space: 2 } },
     });
@@ -27,8 +39,8 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
     return new Paragraph({
       tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
       children: [
-        new TextRun({ text: main, bold: true, size: sz(20) }),
-        new TextRun({ text: `\t${right || ''}`, size: sz(20) }),
+        new TextRun({ text: main, bold: true, size: sz(20), font: F }),
+        new TextRun({ text: `\t${right || ''}`, size: sz(20), font: F }),
       ],
       spacing: { before: sp(80), after: 0, line: ln(10), lineRule: 'exact' },
     });
@@ -36,7 +48,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
 
   function docxItalicSub(text) {
     return new Paragraph({
-      children: [new TextRun({ text, italics: true, size: sz(18), color: '555555' })],
+      children: [new TextRun({ text, italics: true, size: sz(18), color: '555555', font: F })],
       spacing: { after: sp(40), line: ln(9), lineRule: 'exact' },
     });
   }
@@ -50,12 +62,12 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
   const children = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: resume.contact.name || 'Your Name', bold: true, size: sz(32) })],
+      children: [new TextRun({ text: resume.contact.name || 'Your Name', bold: true, size: sz(32), font: F })],
       spacing: { after: sp(40), line: ln(16), lineRule: 'exact' },
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: contactParts.join('  |  '), size: sz(18), color: '444444' })],
+      children: [new TextRun({ text: contactParts.join('  |  '), size: sz(18), color: '444444', font: F })],
       spacing: { after: sp(80), line: ln(9), lineRule: 'exact' },
     }),
   ];
@@ -67,7 +79,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
 
     if (key === 'summary' && resume.summary) {
       children.push(docxHeading('Summary'));
-      children.push(new Paragraph({ children: [new TextRun({ text: resume.summary, size: sz(20) })], spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
+      children.push(new Paragraph({ children: [new TextRun({ text: resume.summary, size: sz(20), font: F })], spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
       continue;
     }
 
@@ -81,8 +93,8 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
           children.push(new Paragraph({
             tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
             children: [
-              new TextRun({ text: degreeField, italics: true, size: sz(18), color: '555555' }),
-              new TextRun({ text: `\t${dates}`, italics: true, size: sz(18), color: '555555' }),
+              new TextRun({ text: degreeField, italics: true, size: sz(18), color: '555555', font: F }),
+              new TextRun({ text: `\t${dates}`, italics: true, size: sz(18), color: '555555', font: F }),
             ],
             spacing: { after: sp(20), line: ln(9), lineRule: 'exact' },
           }));
@@ -102,7 +114,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         children.push(docxEntryHeader(exp.company, rightPart));
         if (exp.title) children.push(docxItalicSub(exp.title));
         exp.bullets.filter(Boolean).forEach((b) => {
-          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20) })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
+          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20), font: F })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
         });
       });
       continue;
@@ -115,7 +127,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         children.push(docxEntryHeader(proj.name, dates));
         if (proj.tech) children.push(docxItalicSub(proj.tech));
         proj.bullets.filter(Boolean).forEach((b) => {
-          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20) })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
+          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20), font: F })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
         });
       });
       continue;
@@ -125,8 +137,8 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
       children.push(docxHeading('Technical Skills'));
       resume.skills.forEach((sk) => {
         const runs = sk.category
-          ? [new TextRun({ text: `${sk.category}: `, bold: true, size: sz(20) }), new TextRun({ text: sk.items, size: sz(20) })]
-          : [new TextRun({ text: sk.items, size: sz(20) })];
+          ? [new TextRun({ text: `${sk.category}: `, bold: true, size: sz(20), font: F }), new TextRun({ text: sk.items, size: sz(20), font: F })]
+          : [new TextRun({ text: sk.items, size: sz(20), font: F })];
         children.push(new Paragraph({ children: runs, spacing: { after: sp(30), line: ln(10), lineRule: 'exact' } }));
       });
       continue;
@@ -145,10 +157,10 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
       children.push(docxHeading('Honors & Awards'));
       const honorRuns = [];
       resume.honors_awards.forEach((award, i) => {
-        if (i > 0) honorRuns.push(new TextRun({ text: ' • ', size: sz(20) }));
-        honorRuns.push(new TextRun({ text: award.title, size: sz(20) }));
-        if (award.issuer) honorRuns.push(new TextRun({ text: `, ${award.issuer}`, size: sz(20) }));
-        if (award.date) honorRuns.push(new TextRun({ text: ` (${award.date})`, size: sz(20) }));
+        if (i > 0) honorRuns.push(new TextRun({ text: ' • ', size: sz(20), font: F }));
+        honorRuns.push(new TextRun({ text: award.title, size: sz(20), font: F }));
+        if (award.issuer) honorRuns.push(new TextRun({ text: `, ${award.issuer}`, size: sz(20), font: F }));
+        if (award.date) honorRuns.push(new TextRun({ text: ` (${award.date})`, size: sz(20), font: F }));
       });
       children.push(new Paragraph({ children: honorRuns, spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
       continue;
@@ -159,7 +171,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
     if (cs && (cs.title || cs.description)) {
       if (cs.title) children.push(docxHeading(cs.title));
       if (cs.description) {
-        children.push(new Paragraph({ children: [new TextRun({ text: cs.description, size: sz(20) })], spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
+        children.push(new Paragraph({ children: [new TextRun({ text: cs.description, size: sz(20), font: F })], spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
       }
     }
   }
@@ -171,7 +183,12 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
     },
   };
 
-  return new Document({ sections: [{ properties: sectionProps, children }] });
+  const robotoData = base64ToUint8Array(pdfFonts['Roboto-Regular.ttf']);
+
+  return new Document({
+    fonts: [{ name: 'Roboto', data: robotoData }],
+    sections: [{ properties: sectionProps, children }],
+  });
 }
 
 export { Packer };

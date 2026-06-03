@@ -474,7 +474,6 @@ export default function ResumeEditor() {
     const canMoveDown = idx < sectionOrder.length - 1;
     const isCollapsed = collapsed[key] ?? true;
     const props = {
-      key,
       collapsed: isCollapsed,
       onToggle: () => toggleCollapsed(key),
       onMoveUp: () => moveSection(key, -1),
@@ -484,7 +483,7 @@ export default function ResumeEditor() {
     };
 
     if (key === 'contact') return (
-      <FormSection {...props} title="Contact Info">
+      <FormSection key={key} {...props} title="Contact Info">
         {contactFieldOrder.map((k, idx) => (
           <div className="field-row" key={k}>
             <span className="field-label">{contactLabelMap[k]}</span>
@@ -503,13 +502,13 @@ export default function ResumeEditor() {
     );
 
     if (key === 'summary') return (
-      <FormSection {...props} title="Professional Summary">
+      <FormSection key={key} {...props} title="Professional Summary">
         <textarea className="editor-input" value={resume.summary} onChange={(e) => set('summary', e.target.value)} rows={4} placeholder="Write a brief professional summary..." />
       </FormSection>
     );
 
     if (key === 'experience') return (
-      <FormSection {...props} title="Work Experience">
+      <FormSection key={key} {...props} title="Work Experience">
         {resume.experience.map((exp, idx) => (
           <SectionCard key={exp.id} title={exp.company || 'New Entry'} onRemove={() => removeEntry('experience', exp.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.experience.length - 1} onMoveUp={() => moveEntry('experience', exp.id, -1)} onMoveDown={() => moveEntry('experience', exp.id, 1)}>
             <div className="field-row"><span className="field-label">Company</span><input className="editor-input" value={exp.company} onChange={(e) => updateEntry('experience', exp.id, 'company', e.target.value)} placeholder="Company" /></div>
@@ -530,7 +529,7 @@ export default function ResumeEditor() {
     );
 
     if (key === 'education') return (
-      <FormSection {...props} title="Education">
+      <FormSection key={key} {...props} title="Education">
         {resume.education.map((edu, idx) => (
           <SectionCard key={edu.id} title={edu.institution || 'New Entry'} onRemove={() => removeEntry('education', edu.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.education.length - 1} onMoveUp={() => moveEntry('education', edu.id, -1)} onMoveDown={() => moveEntry('education', edu.id, 1)}>
             <div className="field-row"><span className="field-label">School</span><input className="editor-input" value={edu.institution} onChange={(e) => updateEntry('education', edu.id, 'institution', e.target.value)} placeholder="University Name" /></div>
@@ -551,7 +550,7 @@ export default function ResumeEditor() {
     );
 
     if (key === 'skills') return (
-      <FormSection {...props} title="Technical Skills">
+      <FormSection key={key} {...props} title="Technical Skills">
         {resume.skills.map((sk, idx) => (
           <div key={sk.id} className="entry-card">
             <div className="entry-card-header">
@@ -572,7 +571,7 @@ export default function ResumeEditor() {
     );
 
     if (key === 'projects') return (
-      <FormSection {...props} title="Projects">
+      <FormSection key={key} {...props} title="Projects">
         {resume.projects.map((proj, idx) => (
           <SectionCard key={proj.id} title={proj.name || 'New Entry'} onRemove={() => removeEntry('projects', proj.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.projects.length - 1} onMoveUp={() => moveEntry('projects', proj.id, -1)} onMoveDown={() => moveEntry('projects', proj.id, 1)}>
             <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={proj.name} onChange={(e) => updateEntry('projects', proj.id, 'name', e.target.value)} placeholder="Project Name" /></div>
@@ -592,7 +591,7 @@ export default function ResumeEditor() {
     );
 
     if (key === 'certifications') return (
-      <FormSection {...props} title="Certifications">
+      <FormSection key={key} {...props} title="Certifications">
         {resume.certifications.map((cert, idx) => (
           <SectionCard key={cert.id} title={cert.name || 'New Entry'} onRemove={() => removeEntry('certifications', cert.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.certifications.length - 1} onMoveUp={() => moveEntry('certifications', cert.id, -1)} onMoveDown={() => moveEntry('certifications', cert.id, 1)}>
             <div className="field-row"><span className="field-label">Name</span><input className="editor-input" value={cert.name} onChange={(e) => updateEntry('certifications', cert.id, 'name', e.target.value)} placeholder="Certification Name" /></div>
@@ -607,7 +606,7 @@ export default function ResumeEditor() {
     );
 
     if (key === 'honors_awards') return (
-      <FormSection {...props} title="Honors & Awards">
+      <FormSection key={key} {...props} title="Honors & Awards">
         {resume.honors_awards.map((award, idx) => (
           <SectionCard key={award.id} title={award.title || 'New Entry'} onRemove={() => removeEntry('honors_awards', award.id)} canMoveUp={idx > 0} canMoveDown={idx < resume.honors_awards.length - 1} onMoveUp={() => moveEntry('honors_awards', award.id, -1)} onMoveDown={() => moveEntry('honors_awards', award.id, 1)}>
             <div className="field-row"><span className="field-label">Title</span><input className="editor-input" value={award.title} onChange={(e) => updateEntry('honors_awards', award.id, 'title', e.target.value)} placeholder="Award Name" /></div>
@@ -625,7 +624,7 @@ export default function ResumeEditor() {
     const cs = (resume.customSections || []).find((c) => c.id === key);
     if (!cs) return null;
     return (
-      <FormSection {...props} title={cs.title || 'Custom Section'} onRemove={() => removeCustomSection(key)}>
+      <FormSection key={key} {...props} title={cs.title || 'Custom Section'} onRemove={() => removeCustomSection(key)}>
         <div className="field-row">
           <span className="field-label">Title</span>
           <input className="editor-input" value={cs.title} onChange={(e) => updateCustomSection(key, 'title', e.target.value)} placeholder="Section Title" />
@@ -854,7 +853,7 @@ export default function ResumeEditor() {
             <div
               ref={contentWrapRef}
               style={{
-                padding: `${format.margins}px ${format.margins + 4}px`,
+                padding: `${format.margins}px`,
                 lineHeight: format.lineSpacing,
                 zoom: fitToOnePage ? fitFontScale : undefined,
               }}

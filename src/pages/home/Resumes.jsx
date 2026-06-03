@@ -36,7 +36,7 @@ import {
 } from '@mui/icons-material';
 import mammoth from 'mammoth';
 import { useSnackbar } from '@/common/contexts/SnackbarContext';
-import { exportPdf, exportDocx, getExportPdfBlob, getOptimalFontScale } from '@/common/functions/exportFile.js';
+import { exportPdf, exportDocx, getExportPdfBlob } from '@/common/functions/exportFile.js';
 import { UserContext } from '@/common/contexts/UserContext';
 import './Resumes.css';
 
@@ -388,20 +388,10 @@ function Resumes() {
       const parsed = prepareForDocx(resume.parsed_resume);
       const fitToOnePage = resume.parsed_resume?.fitToOnePage ?? true;
       const format = resume.parsed_resume?.format ?? { margins: 40, lineSpacing: 1.3 };
-      const bulletStyle = resume.parsed_resume?.bulletStyle ?? 'dash';
-      let scale = 1;
-      if (fitToOnePage) {
-        scale = Math.min(await getOptimalFontScale(parsed, {
-          margins: format?.margins ?? 36,
-          lineSpacing: format?.lineSpacing ?? 1.2,
-          bulletStyle,
-          sectionOrder: parsed.sectionOrder,
-        }), 1.05);
-      }
       await exportDocx(parsed, {
         filename: resume.file_name.replace(/\.[^/.]+$/, ''),
         format,
-        scale,
+        fitToOnePage,
       });
     } catch (error) {
       console.error('Error downloading DOCX:', error);
