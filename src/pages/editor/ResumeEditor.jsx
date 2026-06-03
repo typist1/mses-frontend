@@ -4,8 +4,6 @@ import { Button, IconButton, CircularProgress } from '@mui/material';
 import { Add, Delete, KeyboardArrowUp, KeyboardArrowDown } from '@mui/icons-material';
 import axios from 'axios';
 import { useSnackbar } from '@/common/contexts/SnackbarContext';
-import { buildDocx, Packer } from '@/utils/buildDocx';
-import { getPdfBlob } from '@/utils/buildPdf';
 import { exportPdf, exportDocx } from '@/common/functions/exportFile';
 import { UserContext } from '@/common/contexts/UserContext';
 import './ResumeEditor.css';
@@ -100,7 +98,8 @@ function rowsToSkills(rows) {
   const nameMap = { technical: 'technical', tools: 'tools', languages: 'languages', 'soft skills': 'soft', soft: 'soft' };
   for (const row of (rows || [])) {
     const key = nameMap[(row.category || '').toLowerCase()] || 'technical';
-    map[key] = (row.items || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const items = (row.items || '').split(',').map((s) => s.trim()).filter(Boolean);
+    map[key] = [...map[key], ...items];
   }
   return map;
 }

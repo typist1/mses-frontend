@@ -19,7 +19,6 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
   const pageMarginTwips = Math.round(margins * 15);
 
   const sz = (n) => Math.round(n * fontScale);
-  const sp = (n) => Math.round(n * fontScale);
 
   // Exact line height in twips to match CSS line-height: lineSpacing on a given pt font.
   // Formula: pt * fontScale * (96/72 px/pt) * (15 twips/px) * lineSpacing = pt * fontScale * 20 * lineSpacing
@@ -30,7 +29,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
   function docxHeading(text) {
     return new Paragraph({
       children: [new TextRun({ text, bold: true, size: sz(22), allCaps: true, font: F })],
-      spacing: { before: sp(160), after: sp(60), line: ln(11), lineRule: 'exact' },
+      spacing: { before: sz(160), after: sz(60), line: ln(11), lineRule: 'exact' },
       border: { bottom: { color: '333333', size: 6, style: BorderStyle.SINGLE, space: 2 } },
     });
   }
@@ -42,14 +41,14 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         new TextRun({ text: main, bold: true, size: sz(20), font: F }),
         new TextRun({ text: `\t${right || ''}`, size: sz(20), font: F }),
       ],
-      spacing: { before: sp(80), after: 0, line: ln(10), lineRule: 'exact' },
+      spacing: { before: sz(80), after: 0, line: ln(10), lineRule: 'exact' },
     });
   }
 
   function docxItalicSub(text) {
     return new Paragraph({
       children: [new TextRun({ text, italics: true, size: sz(18), color: '555555', font: F })],
-      spacing: { after: sp(40), line: ln(9), lineRule: 'exact' },
+      spacing: { after: sz(40), line: ln(9), lineRule: 'exact' },
     });
   }
 
@@ -63,12 +62,12 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [new TextRun({ text: resume.contact.name || 'Your Name', bold: true, size: sz(32), font: F })],
-      spacing: { after: sp(40), line: ln(16), lineRule: 'exact' },
+      spacing: { after: sz(40), line: ln(16), lineRule: 'exact' },
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [new TextRun({ text: contactParts.join('  |  '), size: sz(18), color: '444444', font: F })],
-      spacing: { after: sp(80), line: ln(9), lineRule: 'exact' },
+      spacing: { after: sz(80), line: ln(9), lineRule: 'exact' },
     }),
   ];
 
@@ -79,11 +78,11 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
 
     if (key === 'summary' && resume.summary) {
       children.push(docxHeading('Summary'));
-      children.push(new Paragraph({ children: [new TextRun({ text: resume.summary, size: sz(20), font: F })], spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
+      children.push(new Paragraph({ children: [new TextRun({ text: resume.summary, size: sz(20), font: F })], spacing: { after: sz(60), line: ln(10), lineRule: 'exact' } }));
       continue;
     }
 
-    if (key === 'education' && resume.education.length > 0) {
+    if (key === 'education' && (resume.education || []).length > 0) {
       children.push(docxHeading('Education'));
       resume.education.forEach((edu) => {
         const dates = [edu.start, edu.end].filter(Boolean).join(' – ');
@@ -96,7 +95,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
               new TextRun({ text: degreeField, italics: true, size: sz(18), color: '555555', font: F }),
               new TextRun({ text: `\t${dates}`, italics: true, size: sz(18), color: '555555', font: F }),
             ],
-            spacing: { after: sp(20), line: ln(9), lineRule: 'exact' },
+            spacing: { after: sz(20), line: ln(9), lineRule: 'exact' },
           }));
         }
         if (edu.gpa) children.push(docxItalicSub(`GPA: ${edu.gpa}`));
@@ -104,7 +103,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
       continue;
     }
 
-    if (key === 'experience' && resume.experience.length > 0) {
+    if (key === 'experience' && (resume.experience || []).length > 0) {
       children.push(docxHeading('Experience'));
       resume.experience.forEach((exp) => {
         const rightPart = [
@@ -113,38 +112,38 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         ].filter(Boolean).join(' | ');
         children.push(docxEntryHeader(exp.company, rightPart));
         if (exp.title) children.push(docxItalicSub(exp.title));
-        exp.bullets.filter(Boolean).forEach((b) => {
-          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20), font: F })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
+        (exp.bullets || []).filter(Boolean).forEach((b) => {
+          children.push(new Paragraph({ indent: { left: sz(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20), font: F })], spacing: { after: sz(20), line: ln(10), lineRule: 'exact' } }));
         });
       });
       continue;
     }
 
-    if (key === 'projects' && resume.projects.length > 0) {
+    if (key === 'projects' && (resume.projects || []).length > 0) {
       children.push(docxHeading('Projects'));
       resume.projects.forEach((proj) => {
         const dates = [proj.start, proj.end].filter(Boolean).join(' – ');
         children.push(docxEntryHeader(proj.name, dates));
         if (proj.tech) children.push(docxItalicSub(proj.tech));
-        proj.bullets.filter(Boolean).forEach((b) => {
-          children.push(new Paragraph({ indent: { left: sp(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20), font: F })], spacing: { after: sp(20), line: ln(10), lineRule: 'exact' } }));
+        (proj.bullets || []).filter(Boolean).forEach((b) => {
+          children.push(new Paragraph({ indent: { left: sz(160) }, children: [new TextRun({ text: `– ${b}`, size: sz(20), font: F })], spacing: { after: sz(20), line: ln(10), lineRule: 'exact' } }));
         });
       });
       continue;
     }
 
-    if (key === 'skills' && resume.skills.length > 0) {
+    if (key === 'skills' && (resume.skills || []).length > 0) {
       children.push(docxHeading('Technical Skills'));
       resume.skills.forEach((sk) => {
         const runs = sk.category
           ? [new TextRun({ text: `${sk.category}: `, bold: true, size: sz(20), font: F }), new TextRun({ text: sk.items, size: sz(20), font: F })]
           : [new TextRun({ text: sk.items, size: sz(20), font: F })];
-        children.push(new Paragraph({ children: runs, spacing: { after: sp(30), line: ln(10), lineRule: 'exact' } }));
+        children.push(new Paragraph({ children: runs, spacing: { after: sz(30), line: ln(10), lineRule: 'exact' } }));
       });
       continue;
     }
 
-    if (key === 'certifications' && resume.certifications.length > 0) {
+    if (key === 'certifications' && (resume.certifications || []).length > 0) {
       children.push(docxHeading('Certifications'));
       resume.certifications.forEach((cert) => {
         children.push(docxEntryHeader(cert.name, cert.date));
@@ -153,7 +152,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
       continue;
     }
 
-    if (key === 'honors_awards' && resume.honors_awards.length > 0) {
+    if (key === 'honors_awards' && (resume.honors_awards || []).length > 0) {
       children.push(docxHeading('Honors & Awards'));
       const honorRuns = [];
       resume.honors_awards.forEach((award, i) => {
@@ -162,7 +161,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
         if (award.issuer) honorRuns.push(new TextRun({ text: `, ${award.issuer}`, size: sz(20), font: F }));
         if (award.date) honorRuns.push(new TextRun({ text: ` (${award.date})`, size: sz(20), font: F }));
       });
-      children.push(new Paragraph({ children: honorRuns, spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
+      children.push(new Paragraph({ children: honorRuns, spacing: { after: sz(60), line: ln(10), lineRule: 'exact' } }));
       continue;
     }
 
@@ -171,7 +170,7 @@ export function buildDocx(resume, fontScale = 1, format = {}) {
     if (cs && (cs.title || cs.description)) {
       if (cs.title) children.push(docxHeading(cs.title));
       if (cs.description) {
-        children.push(new Paragraph({ children: [new TextRun({ text: cs.description, size: sz(20), font: F })], spacing: { after: sp(60), line: ln(10), lineRule: 'exact' } }));
+        children.push(new Paragraph({ children: [new TextRun({ text: cs.description, size: sz(20), font: F })], spacing: { after: sz(60), line: ln(10), lineRule: 'exact' } }));
       }
     }
   }
